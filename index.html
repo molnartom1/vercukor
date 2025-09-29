@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Napi vércukor monitor</title>
+  <style>
+    :root{
+      --bg:#0b1020; --card:#121833; --muted:#313a66; --text:#e9ecff; --accent:#7aa2ff; --good:#38c172; --warn:#f59e0b; --bad:#ef4444;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1530 60%,#0b1020);color:var(--text);font:14px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial}
+    header{position:sticky;top:0;z-index:10;background:rgba(9,13,28,.7);backdrop-filter:blur(6px);border-bottom:1px solid #1e2652}
+    .wrap{max-width:1100px;margin:0 auto;padding:14px}
+    h1{font-size:22px;margin:6px 0 0}
+    .sub{opacity:.8;font-size:12px}
+
+    .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:14px}
+    @media (max-width: 960px){.grid{grid-template-columns:1fr}}
+
+    .card{background:var(--card);border:1px solid #1f2752;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .card h2{font-size:16px;margin:0 0 10px}
+    .card .body{padding:16px}
+
+    label{display:block;font-weight:600;margin:8px 0 4px}
+    input, select, textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--muted);background:#0f1630;color:var(--text)}
+    input[type="number"]{appearance:textfield}
+    ::placeholder{color:#97a2d9}
+
+    .row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    .row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+    button{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#061024;font-weight:700}
+    button.ghost{background:#19224b;color:var(--text);border:1px solid var(--muted)}
+    button.danger{background:var(--bad);color:#190a0a}
+    button.warn{background:var(--warn);color:#1a1305}
+
+    .flex{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--muted);background:#0e1633;font-size:12px}
+
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
+    .stat{background:#0f1738;border:1px solid #2a3469;border-radius:14px;padding:12px}
+    .stat b{display:block;font-size:18px;margin-top:4px}
+
+    table{width:100%;border-collapse:separate;border-spacing:0 8px}
+    th,td{padding:10px 12px;text-align:left}
+    thead th{font-size:12px;opacity:.8}
+    tbody tr{background:#0f1738;border:1px solid #2a3469}
+    tbody td:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px}
+    tbody td:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px}
+
+    .tag{padding:4px 8px;border-radius:999px;border:1px solid #3a4476;background:#131c46;font-size:12px}
+
+    .rangeBar{height:10px;border-radius:999px;background:linear-gradient(90deg,var(--bad),var(--warn),var(--good),var(--warn),var(--bad))}
+    .hint{font-size:12px;opacity:.9}
+    .footer{opacity:.7;font-size:12px;margin-top:6px}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="wrap flex">
+      <div>
+        <h1>Napi vércukorszint monitor</h1>
+        <div class="sub">Egyszerű, helyi (offline) naplózás grafikonokkal és exporttal. Az adatok a böngészőben tárolódnak.</div>
+      </div>
+      <div class="row-inline">
+        <label class="pill">Dátum
+          <input id="date" type="date" />
+        </label>
+        <label class="pill">Mértékegység
+          <select id="unit">
+            <option value="mgdl">mg/dL</option>
+            <option value="mmol">mmol/L</option>
+          </select>
+        </label>
+        <button id="printBtn" class="ghost">Nyomtatás</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap grid">
+    <section class="card">
+      <div class="body">
+        <h2>Új mérés rögzítése</h2>
+        <div class="row">
+          <div>
+            <label>Időpont</label>
+            <input id="time" type="time" />
+          </div>
+          <div>
+            <label>Érték</label>
+            <input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 110" />
+          </div>
+          <div>
+            <label>Kategória</label>
+            <select id="tag">
+              <option value="">—</option>
+              <option>Éhgyomri</option>
+              <option>Étkezés előtt</option>
+              <option>Étkezés után</option>
+              <option>Vacsora előtt</option>
+              <option>Lefekvés előtt</option>
+              <option>Edzés után</option>
+              <option>Kontroll</option>
+            </select>
+          </div>
+        </div>
+        <label>Megjegyzés</label>
+        <textarea id="note" rows="2" placeholder="opcionális"></textarea>
+        <div class="row-2" style="margin-top:10px">
+          <div>
+            <label>Cél tartomány</label>
+            <div class="row-2">
+              <input id="minTarget" type="number" step="0.1" />
+              <input id="maxTarget" type="number" step="0.1" />
+            </div>
+            <div class="hint">70–180 mg/dL (3.9–10.0 mmol/L) alapértelmezett – igény szerint állítható.</div>
+          </div>
+          <div class="row-2" style="align-items:end">
+            <button id="addBtn">Hozzáadás</button>
+            <button id="clearDayBtn" class="danger">Napi adatok törlése</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="body">
+        <h2>Napi áttekintés</h2>
+        <div class="rangeBar" title="Alacsony – Cél – Magas" style="margin:6px 0 12px"></div>
+        <canvas id="chart" height="140"></canvas>
+        <div class="stats">
+          <div class="stat"><span>Átlag</span><b id="avg">—</b></div>
+          <div class="stat"><span>Minimum</span><b id="min">—</b></div>
+          <div class="stat"><span>Maximum</span><b id="max">—</b></div>
+          <div class="stat"><span>Idő a tartományban</span><b id="tir">—</b></div>
+        </div>
+        <div class="row-inline" style="margin-top:10px">
+          <button id="exportCsv" class="ghost">Export (CSV)</button>
+          <input id="importCsv" type="file" accept=".csv" style="display:none" />
+          <button id="importBtn" class="ghost">Import</button>
+          <button id="resetAll" class="warn">Minden adat törlése</button>
+        </div>
+        <p class="footer">Megjegyzés: ez a segédeszköz nem helyettesíti az orvosi tanácsot. Vészértékek esetén kövesse a kezelési tervét és keresse fel orvosát.</p>
+      </div>
+    </section>
+
+    <section class="card" style="grid-column:1 / -1">
+      <div class="body">
+        <h2>Mérések</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Idő</th>
+              <th>Érték</th>
+              <th>Kategória</th>
+              <th>Megjegyzés</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ====== Hasznos konverziók és utilok ======
+    const FACTOR = 18.0182; // mg/dL <-> mmol/L
+    const $ = sel => document.querySelector(sel);
+    const fmt = (val, unit) => val===null||Number.isNaN(val) ? '—' : (unit==='mgdl' ? `${val.toFixed(0)} mg/dL` : `${val.toFixed(1)} mmol/L`);
+    const toMgdl = (v, unit) => unit==='mgdl' ? v : v*FACTOR;
+    const fromMgdl = (vMg, unit) => unit==='mgdl' ? vMg : vMg/FACTOR;
+
+    const els = {
+      date: $('#date'), time: $('#time'), value: $('#value'), tag: $('#tag'), note: $('#note'),
+      minTarget: $('#minTarget'), maxTarget: $('#maxTarget'), unit: $('#unit'),
+      rows: $('#rows'), avg: $('#avg'), min: $('#min'), max: $('#max'), tir: $('#tir'),
+      addBtn: $('#addBtn'), clearDayBtn: $('#clearDayBtn'), printBtn: $('#printBtn'),
+      exportCsv: $('#exportCsv'), importBtn: $('#importBtn'), importCsv: $('#importCsv'), resetAll: $('#resetAll')
+    };
+
+    // ====== Állandó tár ======
+    const KEY = 'glucose_log_v1';
+    function loadAll(){
+      try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180 }; }
+      catch{ return { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180 }; }
+    }
+    function saveAll(state){ localStorage.setItem(KEY, JSON.stringify(state)); }
+
+    let state = loadAll();
+
+    // ====== Kezdőértékek ======
+    function todayISO(){ return new Date().toISOString().slice(0,10); }
+    els.date.value = todayISO();
+    els.unit.value = state.unit || 'mgdl';
+    els.minTarget.value = fromMgdl(state.minTarget ?? 70, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+    els.maxTarget.value = fromMgdl(state.maxTarget ?? 180, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+
+    // ====== Események ======
+    els.addBtn.addEventListener('click', onAdd);
+    els.clearDayBtn.addEventListener('click', onClearDay);
+    els.date.addEventListener('change', render);
+    els.unit.addEventListener('change', onUnitChange);
+    els.minTarget.addEventListener('change', onTargetChange);
+    els.maxTarget.addEventListener('change', onTargetChange);
+    els.printBtn.addEventListener('click', () => window.print());
+    els.exportCsv.addEventListener('click', exportCSV);
+    els.importBtn.addEventListener('click', () => els.importCsv.click());
+    els.importCsv.addEventListener('change', importCSV);
+    els.resetAll.addEventListener('click', () => { if(confirm('Biztos, hogy törlöd az ÖSSZES adatot?')){ localStorage.removeItem(KEY); state = loadAll(); render(); } });
+
+    // ====== Adatmodell ======
+    function getDay(date){ return state.entries[date] || []; }
+    function setDay(date, arr){ state.entries[date] = arr; saveAll(state); }
+
+    function onAdd(){
+      const date = els.date.value || todayISO();
+      const time = els.time.value || new Date().toTimeString().slice(0,5);
+      let val = parseFloat(els.value.value.replace(',', '.'));
+      const unit = els.unit.value;
+      if(Number.isNaN(val)) return alert('Adj meg érvényes értéket!');
+      const mg = toMgdl(val, unit);
+      const entry = { time, mg, tag: els.tag.value || '', note: els.note.value || '' };
+      const arr = getDay(date);
+      arr.push(entry);
+      arr.sort((a,b)=> a.time.localeCompare(b.time));
+      setDay(date, arr);
+      els.value.value=''; els.note.value='';
+      render();
+    }
+
+    function onDelete(idx){
+      const date = els.date.value;
+      const arr = getDay(date);
+      arr.splice(idx,1);
+      setDay(date, arr);
+      render();
+    }
+
+    function onClearDay(){
+      const date = els.date.value;
+      if(confirm(date+': minden mérés törlése?')){ setDay(date, []); render(); }
+    }
+
+    function onUnitChange(){
+      // csak megjelenítés változik, belső tárolás mg/dL
+      state.unit = els.unit.value; saveAll(state);
+      // célértékek konverziója a kijelzéshez (belső mg-on maradnak)
+      els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed( state.unit==='mgdl'?0:1 );
+      els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed( state.unit==='mgdl'?0:1 );
+      render();
+    }
+
+    function onTargetChange(){
+      const unit = els.unit.value;
+      let minT = parseFloat((els.minTarget.value||'').toString().replace(',', '.'));
+      let maxT = parseFloat((els.maxTarget.value||'').toString().replace(',', '.'));
+      if(Number.isNaN(minT) || Number.isNaN(maxT)) return;
+      state.minTarget = toMgdl(minT, unit);
+      state.maxTarget = toMgdl(maxT, unit);
+      if(state.minTarget > state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; }
+      saveAll(state);
+      render();
+    }
+
+    // ====== Megjelenítés ======
+    let chart;
+    function render(){
+      const date = els.date.value || todayISO();
+      const unit = els.unit.value;
+      const list = getDay(date);
+
+      // Táblázat
+      els.rows.innerHTML = '';
+      list.forEach((e,idx)=>{
+        const tr = document.createElement('tr');
+        const val = fromMgdl(e.mg, unit);
+        const inRange = e.mg>=state.minTarget && e.mg<=state.maxTarget;
+        tr.innerHTML = `
+          <td>${e.time}</td>
+          <td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)') }">${fmt(val, unit)}</b></td>
+          <td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td>
+          <td>${e.note?e.note:''}</td>
+          <td style="text-align:right"><button class="ghost" data-del="${idx}">Törlés</button></td>`;
+        els.rows.appendChild(tr);
+      });
+      els.rows.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', (ev)=> onDelete(parseInt(ev.currentTarget.dataset.del))) );
+
+      // Statisztikák
+      if(list.length){
+        const valuesMg = list.map(e=>e.mg);
+        const avgMg = valuesMg.reduce((a,b)=>a+b,0)/valuesMg.length;
+        const minMg = Math.min(...valuesMg);
+        const maxMg = Math.max(...valuesMg);
+        const tirPct = Math.round(100 * valuesMg.filter(v=>v>=state.minTarget && v<=state.maxTarget).length / valuesMg.length);
+        els.avg.textContent = fmt(fromMgdl(avgMg, unit), unit);
+        els.min.textContent = fmt(fromMgdl(minMg, unit), unit);
+        els.max.textContent = fmt(fromMgdl(maxMg, unit), unit);
+        els.tir.textContent = `${tirPct}%`;
+      } else {
+        els.avg.textContent = els.min.textContent = els.max.textContent = '—';
+        els.tir.textContent = '—';
+      }
+
+      // Grafikon
+      const labels = list.map(e=>e.time);
+      const dataVals = list.map(e=> fromMgdl(e.mg, unit) );
+      const minLine = list.map(()=> fromMgdl(state.minTarget, unit));
+      const maxLine = list.map(()=> fromMgdl(state.maxTarget, unit));
+      const ctx = document.getElementById('chart');
+      if(chart) chart.destroy();
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {label: 'Vércukor', data: dataVals, tension:.3, pointRadius:4, borderWidth:2},
+            {label: 'Cél min', data: minLine, borderDash:[6,6], pointRadius:0, borderWidth:1},
+            {label: 'Cél max', data: maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1},
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: {mode:'index', intersect:false},
+          plugins: { legend:{labels:{color:'#cbd5ff'}}, tooltip:{callbacks:{ label: (ctx)=> `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(unit==='mgdl'?0:1)} ${unit==='mgdl'?'mg/dL':'mmol/L'}` }} },
+          scales: {
+            x: { ticks:{ color:'#cbd5ff' }, grid:{ color:'rgba(203,213,255,.08)'} },
+            y: { ticks:{ color:'#cbd5ff' }, grid:{ color:'rgba(203,213,255,.08)'} }
+          }
+        }
+      });
+    }
+
+    // ====== CSV export/import ======
+    function exportCSV(){
+      const rows = [['Dátum','Idő','Érték (mg/dL)','Kategória','Megjegyzés']];
+      Object.entries(state.entries).forEach(([date, arr])=>{
+        arr.forEach(e=> rows.push([date, e.time, e.mg, e.tag||'', (e.note||'').replace(/\n/g,' ')]));
+      });
+      const csv = rows.map(r=> r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      const dt = new Date().toISOString().slice(0,10);
+      a.download = `vercukor_export_${dt}.csv`;
+      a.click();
+    }
+
+    function importCSV(ev){
+      const file = ev.target.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        const lines = reader.result.split(/\r?\n/).filter(Boolean);
+        const header = lines.shift();
+        const idxDate = 0, idxTime=1, idxMg=2, idxTag=3, idxNote=4; // a saját export formátumunkhoz
+        lines.forEach(line=>{
+          const cols = parseCSVLine(line);
+          const date = cols[idxDate];
+          const entry = { time: cols[idxTime], mg: parseFloat(cols[idxMg]), tag: cols[idxTag]||'', note: cols[idxNote]||'' };
+          if(!state.entries[date]) state.entries[date] = [];
+          if(!Number.isNaN(entry.mg)) state.entries[date].push(entry);
+          state.entries[date].sort((a,b)=> a.time.localeCompare(b.time));
+        });
+        saveAll(state); render();
+      };
+      reader.readAsText(file, 'utf-8');
+      ev.target.value = '';
+    }
+
+    function parseCSVLine(line){
+      // egyszerű CSV parser idézőjelezett cellákhoz
+      const out=[]; let cur=''; let inQ=false;
+      for(let i=0;i<line.length;i++){
+        const ch=line[i];
+        if(ch==='"'){
+          if(inQ && line[i+1]==='"'){ cur+='"'; i++; }
+          else inQ = !inQ;
+        } else if(ch===',' && !inQ){ out.push(cur); cur=''; }
+        else cur+=ch;
+      }
+      out.push(cur); return out;
+    }
+
+    // ====== Init ======
+    render();
+  </script>
+</body>
+</html>
