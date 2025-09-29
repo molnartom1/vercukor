@@ -183,8 +183,8 @@
   };
 
   // ===== Tárolás =====
-  const KEY = 'glucose_log_v1';
-  function loadAll(){ try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180, pin:'' }; } catch{ return { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180, pin:'' }; } }
+   const KEY = 'glucose_log_v1';
+  function loadAll(){ try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; } catch{ return { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; } }
   function saveAll(state){ localStorage.setItem(KEY, JSON.stringify(state)); }
   let state = loadAll();
 
