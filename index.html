@@ -3,77 +3,64 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Napi vércukor monitor</title>
+  <title>Napi vércukor monitor – stabil rögzítés</title>
   <style>
-    :root{
-      --bg:#0b1020; --card:#121833; --muted:#313a66; --text:#e9ecff; --accent:#7aa2ff; --good:#38c172; --warn:#f59e0b; --bad:#ef4444;
-    }
+    :root{ --bg:#0b1020; --card:#121833; --muted:#313a66; --text:#e9ecff; --accent:#7aa2ff; --good:#38c172; --warn:#f59e0b; --bad:#ef4444; }
     *{box-sizing:border-box}
     body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1530 60%,#0b1020);color:var(--text);font:14px/1.5 system-ui,Segoe UI,Roboto,Helvetica,Arial}
     header{position:sticky;top:0;z-index:10;background:rgba(9,13,28,.7);backdrop-filter:blur(6px);border-bottom:1px solid #1e2652}
     .wrap{max-width:1100px;margin:0 auto;padding:14px}
     h1{font-size:22px;margin:6px 0 0}
     .sub{opacity:.8;font-size:12px}
-
     .grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-top:14px}
-    @media (max-width: 960px){.grid{grid-template-columns:1fr}}
-
+    @media (max-width:960px){.grid{grid-template-columns:1fr}}
     .card{background:var(--card);border:1px solid #1f2752;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
     .card h2{font-size:16px;margin:0 0 10px}
     .card .body{padding:16px}
-
     label{display:block;font-weight:600;margin:8px 0 4px}
-    input, select, textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--muted);background:#0f1630;color:var(--text)}
+    input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--muted);background:#0f1630;color:var(--text)}
     input[type="number"]{appearance:textfield}
     ::placeholder{color:#97a2d9}
-
     .row{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
     .row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .row-inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-
     button{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#061024;font-weight:700}
     button.ghost{background:#19224b;color:var(--text);border:1px solid var(--muted)}
     button.danger{background:var(--bad);color:#190a0a}
     button.warn{background:var(--warn);color:#1a1305}
-
-    .flex{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-    .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;border:1px solid var(--muted);background:#0e1633;font-size:12px}
-
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px}
     .stat{background:#0f1738;border:1px solid #2a3469;border-radius:14px;padding:12px}
     .stat b{display:block;font-size:18px;margin-top:4px}
-
     table{width:100%;border-collapse:separate;border-spacing:0 8px}
     th,td{padding:10px 12px;text-align:left}
     thead th{font-size:12px;opacity:.8}
     tbody tr{background:#0f1738;border:1px solid #2a3469}
     tbody td:first-child{border-top-left-radius:10px;border-bottom-left-radius:10px}
     tbody td:last-child{border-top-right-radius:10px;border-bottom-right-radius:10px}
-
     .tag{padding:4px 8px;border-radius:999px;border:1px solid #3a4476;background:#131c46;font-size:12px}
-
     .rangeBar{height:10px;border-radius:999px;background:linear-gradient(90deg,var(--bad),var(--warn),var(--good),var(--warn),var(--bad))}
     .hint{font-size:12px;opacity:.9}
     .footer{opacity:.7;font-size:12px;margin-top:6px}
+    .banner{background:#07260e;color:#b9ffd0;border-bottom:1px solid #134d1f;padding:8px 14px;display:none}
+    .banner.error{background:#2b100f;color:#ffd0cb;border-color:#7b2723}
+    canvas.exportCanvas{position:absolute;left:-9999px;top:-9999px;width:800px!important;height:300px!important}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.12/build/pdfmake.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.12/build/vfs_fonts.js"></script>
 </head>
 <body>
+  <div id="banner" class="banner"></div>
   <header>
-    <div class="wrap flex">
+    <div class="wrap row-inline" style="justify-content:space-between">
       <div>
         <h1>Napi vércukorszint monitor</h1>
-        <div class="sub">Egyszerű, helyi (offline) naplózás grafikonokkal és exporttal. Az adatok a böngészőben tárolódnak.</div>
+        <div class="sub">Egyszerű, helyi (offline) naplózás.</div>
       </div>
       <div class="row-inline">
-        <label class="pill">Dátum
-          <input id="date" type="date" />
-        </label>
+        <label class="pill">Dátum <input id="date" type="date" /></label>
         <label class="pill">Mértékegység
-          <select id="unit">
-            <option value="mgdl">mg/dL</option>
-            <option value="mmol">mmol/L</option>
-          </select>
+          <select id="unit"><option value="mgdl">mg/dL</option><option value="mmol">mmol/L</option></select>
         </label>
         <button id="printBtn" class="ghost">Nyomtatás</button>
       </div>
@@ -85,30 +72,15 @@
       <div class="body">
         <h2>Új mérés rögzítése</h2>
         <div class="row">
-          <div>
-            <label>Időpont</label>
-            <input id="time" type="time" />
-          </div>
-          <div>
-            <label>Érték</label>
-            <input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 110" />
-          </div>
-          <div>
-            <label>Kategória</label>
+          <div><label>Időpont<input id="time" type="time" /></label></div>
+          <div><label>Érték<input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 110" /></label></div>
+          <div><label>Kategória
             <select id="tag">
-              <option value="">—</option>
-              <option>Éhgyomri</option>
-              <option>Étkezés előtt</option>
-              <option>Étkezés után</option>
-              <option>Vacsora előtt</option>
-              <option>Lefekvés előtt</option>
-              <option>Edzés után</option>
-              <option>Kontroll</option>
-            </select>
+              <option value="">—</option><option>Éhgyomri</option><option>Étkezés előtt</option><option>Étkezés után</option><option>Vacsora előtt</option><option>Lefekvés előtt</option><option>Edzés után</option><option>Kontroll</option>
+            </select></label>
           </div>
         </div>
-        <label>Megjegyzés</label>
-        <textarea id="note" rows="2" placeholder="opcionális"></textarea>
+        <label>Megjegyzés<textarea id="note" rows="2" placeholder="opcionális"></textarea></label>
         <div class="row-2" style="margin-top:10px">
           <div>
             <label>Cél tartomány</label>
@@ -129,7 +101,7 @@
     <section class="card">
       <div class="body">
         <h2>Napi áttekintés</h2>
-        <div class="rangeBar" title="Alacsony – Cél – Magas" style="margin:6px 0 12px"></div>
+        <div class="rangeBar" style="margin:6px 0 12px" title="Alacsony – Cél – Magas"></div>
         <canvas id="chart" height="140"></canvas>
         <div class="stats">
           <div class="stat"><span>Átlag</span><b id="avg">—</b></div>
@@ -137,13 +109,40 @@
           <div class="stat"><span>Maximum</span><b id="max">—</b></div>
           <div class="stat"><span>Idő a tartományban</span><b id="tir">—</b></div>
         </div>
+        <h2 style="margin-top:20px">Heti áttekintés</h2>
+        <canvas id="weekChart" height="140"></canvas>
+        <div class="stats">
+          <div class="stat"><span>Heti átlag</span><b id="wavg">—</b></div>
+          <div class="stat"><span>Heti minimum</span><b id="wmin">—</b></div>
+          <div class="stat"><span>Heti maximum</span><b id="wmax">—</b></div>
+          <div class="stat"><span>Heti TIR</span><b id="wtir">—</b></div>
+        </div>
+
+        <h2 style="margin-top:20px">Időszakos export</h2>
+        <div class="row-2">
+          <label>Kezdő dátum<input id="fromDate" type="date"></label>
+          <label>Vég dátum<input id="toDate" type="date"></label>
+        </div>
         <div class="row-inline" style="margin-top:10px">
+          <button id="exportPdf" class="ghost">Export PDF (tól–ig)</button>
+          <button id="exportPdfWeek" class="ghost">Heti PDF (utolsó 7 nap)</button>
           <button id="exportCsv" class="ghost">Export (CSV)</button>
           <input id="importCsv" type="file" accept=".csv" style="display:none" />
           <button id="importBtn" class="ghost">Import</button>
           <button id="resetAll" class="warn">Minden adat törlése</button>
         </div>
-        <p class="footer">Megjegyzés: ez a segédeszköz nem helyettesíti az orvosi tanácsot. Vészértékek esetén kövesse a kezelési tervét és keresse fel orvosát.</p>
+
+        <h3 style="margin-top:20px">PIN védelem törlésekhez</h3>
+        <div class="row-2">
+          <label>PIN kód (min. 4 számjegy)
+            <input id="pinInput" type="password" placeholder="pl. 2024" />
+          </label>
+          <div style="display:flex;gap:8px;align-items:end">
+            <button id="pinSave" class="ghost">PIN mentése</button>
+          </div>
+        </div>
+
+        <p class="footer">Megjegyzés: ez a segédeszköz nem helyettesíti az orvosi tanácsot.</p>
       </div>
     </section>
 
@@ -151,241 +150,231 @@
       <div class="body">
         <h2>Mérések</h2>
         <table>
-          <thead>
-            <tr>
-              <th>Idő</th>
-              <th>Érték</th>
-              <th>Kategória</th>
-              <th>Megjegyzés</th>
-              <th></th>
-            </tr>
-          </thead>
+          <thead><tr><th>Idő</th><th>Érték</th><th>Kategória</th><th>Megjegyzés</th><th></th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
     </section>
   </main>
 
-  <script>
-    // ====== Hasznos konverziók és utilok ======
-    const FACTOR = 18.0182; // mg/dL <-> mmol/L
-    const $ = sel => document.querySelector(sel);
-    const fmt = (val, unit) => val===null||Number.isNaN(val) ? '—' : (unit==='mgdl' ? `${val.toFixed(0)} mg/dL` : `${val.toFixed(1)} mmol/L`);
-    const toMgdl = (v, unit) => unit==='mgdl' ? v : v*FACTOR;
-    const fromMgdl = (vMg, unit) => unit==='mgdl' ? vMg : vMg/FACTOR;
+  <canvas id="rangeLine" class="exportCanvas" width="1200" height="450"></canvas>
+  <canvas id="rangeBar" class="exportCanvas" width="1200" height="450"></canvas>
 
-    const els = {
-      date: $('#date'), time: $('#time'), value: $('#value'), tag: $('#tag'), note: $('#note'),
-      minTarget: $('#minTarget'), maxTarget: $('#maxTarget'), unit: $('#unit'),
-      rows: $('#rows'), avg: $('#avg'), min: $('#min'), max: $('#max'), tir: $('#tir'),
-      addBtn: $('#addBtn'), clearDayBtn: $('#clearDayBtn'), printBtn: $('#printBtn'),
-      exportCsv: $('#exportCsv'), importBtn: $('#importBtn'), importCsv: $('#importCsv'), resetAll: $('#resetAll')
-    };
+<script>
+  // ===== Utilok =====
+  const FACTOR = 18.0182; // mg/dL <-> mmol/L
+  const $ = sel => document.querySelector(sel);
+  const fmt = (val, unit) => val===null||Number.isNaN(val) ? '—' : (unit==='mgdl' ? `${val.toFixed(0)} mg/dL` : `${val.toFixed(1)} mmol/L`);
+  const toMgdl = (v, unit) => unit==='mgdl' ? v : v*FACTOR;
+  const fromMgdl = (vMg, unit) => unit==='mgdl' ? vMg : vMg/FACTOR;
+  const pad = n => n.toString().padStart(2,'0');
 
-    // ====== Állandó tár ======
-    const KEY = 'glucose_log_v1';
-    function loadAll(){
-      try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180 }; }
-      catch{ return { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180 }; }
-    }
-    function saveAll(state){ localStorage.setItem(KEY, JSON.stringify(state)); }
+  // ===== Elemszelektorok =====
+  const els = {
+    banner: $('#banner'),
+    date: $('#date'), time: $('#time'), value: $('#value'), tag: $('#tag'), note: $('#note'),
+    minTarget: $('#minTarget'), maxTarget: $('#maxTarget'), unit: $('#unit'),
+    rows: $('#rows'), avg: $('#avg'), min: $('#min'), max: $('#max'), tir: $('#tir'),
+    wavg: $('#wavg'), wmin: $('#wmin'), wmax: $('#wmax'), wtir: $('#wtir'),
+    addBtn: $('#addBtn'), clearDayBtn: $('#clearDayBtn'), printBtn: $('#printBtn'),
+    exportCsv: $('#exportCsv'), importBtn: $('#importBtn'), importCsv: $('#importCsv'), resetAll: $('#resetAll'),
+    exportPdf: $('#exportPdf'), fromDate: $('#fromDate'), toDate: $('#toDate'), exportPdfWeek: $('#exportPdfWeek'),
+    pinInput: $('#pinInput'), pinSave: $('#pinSave')
+  };
 
-    let state = loadAll();
+  // ===== Tárolás =====
+  const KEY = 'glucose_log_v1';
+  function loadAll(){ try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180, pin:'' }; } catch{ return { entries:{}, unit:'mgdl', minTarget:70, maxTarget:180, pin:'' }; } }
+  function saveAll(state){ localStorage.setItem(KEY, JSON.stringify(state)); }
+  let state = loadAll();
 
-    // ====== Kezdőértékek ======
-    function todayISO(){ return new Date().toISOString().slice(0,10); }
-    els.date.value = todayISO();
-    els.unit.value = state.unit || 'mgdl';
-    els.minTarget.value = fromMgdl(state.minTarget ?? 70, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
-    els.maxTarget.value = fromMgdl(state.maxTarget ?? 180, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+  // ===== Kezdőértékek =====
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function addDaysISO(dateISO, delta){ const d=new Date(dateISO+'T00:00:00'); d.setDate(d.getDate()+delta); return d.toISOString().slice(0,10); }
+  els.date.value = todayISO();
+  els.unit.value = state.unit || 'mgdl';
+  els.minTarget.value = fromMgdl(state.minTarget ?? 70, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+  els.maxTarget.value = fromMgdl(state.maxTarget ?? 180, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+  els.fromDate.value = todayISO();
+  els.toDate.value = todayISO();
 
-    // ====== Események ======
-    els.addBtn.addEventListener('click', onAdd);
-    els.clearDayBtn.addEventListener('click', onClearDay);
-    els.date.addEventListener('change', render);
-    els.unit.addEventListener('change', onUnitChange);
-    els.minTarget.addEventListener('change', onTargetChange);
-    els.maxTarget.addEventListener('change', onTargetChange);
-    els.printBtn.addEventListener('click', () => window.print());
-    els.exportCsv.addEventListener('click', exportCSV);
-    els.importBtn.addEventListener('click', () => els.importCsv.click());
-    els.importCsv.addEventListener('change', importCSV);
-    els.resetAll.addEventListener('click', () => { if(confirm('Biztos, hogy törlöd az ÖSSZES adatot?')){ localStorage.removeItem(KEY); state = loadAll(); render(); } });
+  // ===== Események =====
+  els.addBtn.addEventListener('click', onAdd);
+  els.value.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); onAdd(); } });
+  els.clearDayBtn.addEventListener('click', onClearDay);
+  els.date.addEventListener('change', render);
+  els.unit.addEventListener('change', onUnitChange);
+  els.minTarget.addEventListener('change', onTargetChange);
+  els.maxTarget.addEventListener('change', onTargetChange);
+  els.printBtn.addEventListener('click', () => window.print());
+  els.exportCsv.addEventListener('click', exportCSV);
+  els.importBtn.addEventListener('click', () => els.importCsv.click());
+  els.importCsv.addEventListener('change', importCSV);
+  els.resetAll.addEventListener('click', () => { if(!requirePin()) return; if(confirm('Biztos, hogy törlöd az ÖSSZES adatot?')){ localStorage.removeItem(KEY); state = loadAll(); render(); } });
+  els.exportPdf.addEventListener('click', exportPDFRange);
+  els.exportPdfWeek.addEventListener('click', () => { const today = todayISO(); const from = addDaysISO(today, -6); els.fromDate.value = from; els.toDate.value = today; exportPDFRange(); });
+  els.pinSave.addEventListener('click', ()=>{ const pin=(els.pinInput.value||'').trim(); if(pin.length<4||!/^[0-9]+$/.test(pin)){ alert('A PIN legalább 4 számjegy legyen.'); return; } state.pin=pin; saveAll(state); els.pinInput.value=''; banner('PIN elmentve.'); });
 
-    // ====== Adatmodell ======
-    function getDay(date){ return state.entries[date] || []; }
-    function setDay(date, arr){ state.entries[date] = arr; saveAll(state); }
-
-    function onAdd(){
-      const date = els.date.value || todayISO();
-      const time = els.time.value || new Date().toTimeString().slice(0,5);
-      let val = parseFloat(els.value.value.replace(',', '.'));
-      const unit = els.unit.value;
-      if(Number.isNaN(val)) return alert('Adj meg érvényes értéket!');
-      const mg = toMgdl(val, unit);
-      const entry = { time, mg, tag: els.tag.value || '', note: els.note.value || '' };
-      const arr = getDay(date);
-      arr.push(entry);
-      arr.sort((a,b)=> a.time.localeCompare(b.time));
-      setDay(date, arr);
-      els.value.value=''; els.note.value='';
-      render();
-    }
-
-    function onDelete(idx){
-      const date = els.date.value;
-      const arr = getDay(date);
-      arr.splice(idx,1);
-      setDay(date, arr);
-      render();
-    }
-
-    function onClearDay(){
-      const date = els.date.value;
-      if(confirm(date+': minden mérés törlése?')){ setDay(date, []); render(); }
-    }
-
-    function onUnitChange(){
-      // csak megjelenítés változik, belső tárolás mg/dL
-      state.unit = els.unit.value; saveAll(state);
-      // célértékek konverziója a kijelzéshez (belső mg-on maradnak)
-      els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed( state.unit==='mgdl'?0:1 );
-      els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed( state.unit==='mgdl'?0:1 );
-      render();
-    }
-
-    function onTargetChange(){
-      const unit = els.unit.value;
-      let minT = parseFloat((els.minTarget.value||'').toString().replace(',', '.'));
-      let maxT = parseFloat((els.maxTarget.value||'').toString().replace(',', '.'));
-      if(Number.isNaN(minT) || Number.isNaN(maxT)) return;
-      state.minTarget = toMgdl(minT, unit);
-      state.maxTarget = toMgdl(maxT, unit);
-      if(state.minTarget > state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; }
-      saveAll(state);
-      render();
-    }
-
-    // ====== Megjelenítés ======
-    let chart;
-    function render(){
-      const date = els.date.value || todayISO();
-      const unit = els.unit.value;
-      const list = getDay(date);
-
-      // Táblázat
-      els.rows.innerHTML = '';
-      list.forEach((e,idx)=>{
-        const tr = document.createElement('tr');
-        const val = fromMgdl(e.mg, unit);
-        const inRange = e.mg>=state.minTarget && e.mg<=state.maxTarget;
-        tr.innerHTML = `
-          <td>${e.time}</td>
-          <td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)') }">${fmt(val, unit)}</b></td>
-          <td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td>
-          <td>${e.note?e.note:''}</td>
-          <td style="text-align:right"><button class="ghost" data-del="${idx}">Törlés</button></td>`;
-        els.rows.appendChild(tr);
-      });
-      els.rows.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', (ev)=> onDelete(parseInt(ev.currentTarget.dataset.del))) );
-
-      // Statisztikák
-      if(list.length){
-        const valuesMg = list.map(e=>e.mg);
-        const avgMg = valuesMg.reduce((a,b)=>a+b,0)/valuesMg.length;
-        const minMg = Math.min(...valuesMg);
-        const maxMg = Math.max(...valuesMg);
-        const tirPct = Math.round(100 * valuesMg.filter(v=>v>=state.minTarget && v<=state.maxTarget).length / valuesMg.length);
-        els.avg.textContent = fmt(fromMgdl(avgMg, unit), unit);
-        els.min.textContent = fmt(fromMgdl(minMg, unit), unit);
-        els.max.textContent = fmt(fromMgdl(maxMg, unit), unit);
-        els.tir.textContent = `${tirPct}%`;
-      } else {
-        els.avg.textContent = els.min.textContent = els.max.textContent = '—';
-        els.tir.textContent = '—';
+  // ===== PIN védelem =====
+  function requirePin(){
+    try{
+      if(!state.pin){
+        const set = prompt('Nincs még PIN beállítva. Adj meg egy új PIN-t (legalább 4 számjegy):');
+        if(!set || set.length<4 || !/^\d+$/.test(set)) { alert('Érvénytelen PIN.'); return false; }
+        const conf = prompt('PIN megerősítése:');
+        if(set!==conf){ alert('A PIN nem egyezik.'); return false; }
+        state.pin=set; saveAll(state); banner('PIN beállítva.'); return true;
       }
+      const entered = prompt('PIN szükséges a törléshez:');
+      if(entered===state.pin) return true;
+      alert('Helytelen PIN.'); return false;
+    } catch(e){ console.error(e); return false; }
+  }
 
-      // Grafikon
+  // ===== Rögzítés: GARANTÁLT mentés =====
+  function onAdd(){
+    let saved = false;
+    try{
+      let date = els.date.value || todayISO();
+      const now = new Date();
+      const time = els.time.value || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      let valStr = (els.value.value||'').toString().replace(',', '.').trim();
+      if(!valStr){ els.value.style.borderColor='var(--bad)'; alert('Adj meg egy számot az értéknél!'); return; }
+      const val = parseFloat(valStr);
+      if(Number.isNaN(val)){ els.value.style.borderColor='var(--bad)'; alert('Érvénytelen számformátum.'); return; }
+      const unit = els.unit.value;
+      const mg = toMgdl(val, unit);
+
+      // 1) MENTÉS
+      const entry = { time, mg, tag: els.tag.value || '', note: els.note.value || '' };
+      const arr = (state.entries[date] || []).slice();
+      arr.push(entry); arr.sort((a,b)=> a.time.localeCompare(b.time));
+      state.entries[date] = arr; saveAll(state);
+      saved = true;
+
+      // 2) UI tisztítás
+      els.value.value=''; els.note.value=''; els.value.style.borderColor='';
+      banner(`✅ Mentve: ${date} ${time} – ${fmt(fromMgdl(mg, unit), unit)}`);
+
+      // 3) Megjelenítés külön védve
+      try{ render(); }
+      catch(e){ console.error('render hiba', e); banner('⚠️ Grafikon hiba, de a mérés MENTVE van.', true); safeTableFallback(date); }
+    } catch(err){
+      console.error('onAdd hiba', err);
+      if(saved){ banner('⚠️ Mentve lett, de megjelenítési hiba történt.', true); }
+      else { alert('Nem sikerült rögzíteni. Nézd meg a konzolt (F12).'); }
+    }
+  }
+
+  function safeTableFallback(date){
+    const unit = els.unit.value;
+    const list = state.entries[date] || [];
+    els.rows.innerHTML = '';
+    list.forEach((e,idx)=>{
+      const tr = document.createElement('tr');
+      const val = fromMgdl(e.mg, unit);
+      const inRange = e.mg>=state.minTarget && e.mg<=state.maxTarget;
+      tr.innerHTML = `<td>${e.time}</td><td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)')}">${fmt(val, unit)}</b></td><td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td><td>${e.note?e.note:''}</td><td></td>`;
+      els.rows.appendChild(tr);
+    });
+  }
+
+  function onDelete(idx){ if(!requirePin()) return; const date=els.date.value; const arr=(state.entries[date]||[]); arr.splice(idx,1); state.entries[date]=arr; saveAll(state); render(); }
+  function onClearDay(){ if(!requirePin()) return; const date=els.date.value; if(confirm(date+': minden mérés törlése?')){ state.entries[date]=[]; saveAll(state); render(); } }
+
+  function onUnitChange(){ state.unit = els.unit.value; saveAll(state); els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); render(); }
+  function onTargetChange(){ const unit=els.unit.value; let minT=parseFloat((els.minTarget.value||'').toString().replace(',', '.')); let maxT=parseFloat((els.maxTarget.value||'').toString().replace(',', '.')); if(Number.isNaN(minT)||Number.isNaN(maxT)) return; state.minTarget=toMgdl(minT,unit); state.maxTarget=toMgdl(maxT,unit); if(state.minTarget>state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; } saveAll(state); render(); }
+
+  // ===== Megjelenítés: CHART hibától független =====
+  let chart, weekChart;
+  function render(){
+    const date = els.date.value || todayISO();
+    const unit = els.unit.value;
+    const list = state.entries[date] || [];
+
+    // Táblázat
+    els.rows.innerHTML = '';
+    list.forEach((e,idx)=>{
+      const tr = document.createElement('tr');
+      const val = fromMgdl(e.mg, unit);
+      const inRange = e.mg>=state.minTarget && e.mg<=state.maxTarget;
+      tr.innerHTML = `
+        <td>${e.time}</td>
+        <td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)')}">${fmt(val, unit)}</b></td>
+        <td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td>
+        <td>${e.note?e.note:''}</td>
+        <td style="text-align:right"><button class="ghost" data-del="${idx}">Törlés</button></td>`;
+      els.rows.appendChild(tr);
+    });
+    els.rows.querySelectorAll('[data-del]').forEach(btn=> btn.addEventListener('click', (ev)=> onDelete(parseInt(ev.currentTarget.dataset.del))) );
+
+    // Napi statok
+    if(list.length){
+      const valuesMg = list.map(e=>e.mg);
+      const avgMg = valuesMg.reduce((a,b)=>a+b,0)/valuesMg.length;
+      const minMg = Math.min(...valuesMg);
+      const maxMg = Math.max(...valuesMg);
+      const tirPct = Math.round(100 * valuesMg.filter(v=>v>=state.minTarget && v<=state.maxTarget).length / valuesMg.length);
+      els.avg.textContent = fmt(fromMgdl(avgMg, unit), unit);
+      els.min.textContent = fmt(fromMgdl(minMg, unit), unit);
+      els.max.textContent = fmt(fromMgdl(maxMg, unit), unit);
+      els.tir.textContent = `${tirPct}%`;
+    } else { els.avg.textContent = els.min.textContent = els.max.textContent = '—'; els.tir.textContent = '—'; }
+
+    // Grafikonok védőhálóval
+    try {
       const labels = list.map(e=>e.time);
       const dataVals = list.map(e=> fromMgdl(e.mg, unit) );
       const minLine = list.map(()=> fromMgdl(state.minTarget, unit));
       const maxLine = list.map(()=> fromMgdl(state.maxTarget, unit));
       const ctx = document.getElementById('chart');
       if(chart) chart.destroy();
-      chart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [
-            {label: 'Vércukor', data: dataVals, tension:.3, pointRadius:4, borderWidth:2},
-            {label: 'Cél min', data: minLine, borderDash:[6,6], pointRadius:0, borderWidth:1},
-            {label: 'Cél max', data: maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1},
-          ]
-        },
-        options: {
-          responsive: true,
-          interaction: {mode:'index', intersect:false},
-          plugins: { legend:{labels:{color:'#cbd5ff'}}, tooltip:{callbacks:{ label: (ctx)=> `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(unit==='mgdl'?0:1)} ${unit==='mgdl'?'mg/dL':'mmol/L'}` }} },
-          scales: {
-            x: { ticks:{ color:'#cbd5ff' }, grid:{ color:'rgba(203,213,255,.08)'} },
-            y: { ticks:{ color:'#cbd5ff' }, grid:{ color:'rgba(203,213,255,.08)'} }
-          }
-        }
-      });
-    }
+      chart = new Chart(ctx, { type:'line', data:{ labels, datasets:[ {label:'Vércukor', data:dataVals, tension:.3, pointRadius:4, borderWidth:2}, {label:'Cél min', data:minLine, borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1} ] }, options:{ responsive:true } });
+    } catch(e){ console.error('napi chart hiba', e); banner('⚠️ Napi grafikon hiba – az adatok rendben mentve vannak.', true); }
 
-    // ====== CSV export/import ======
-    function exportCSV(){
-      const rows = [['Dátum','Idő','Érték (mg/dL)','Kategória','Megjegyzés']];
-      Object.entries(state.entries).forEach(([date, arr])=>{
-        arr.forEach(e=> rows.push([date, e.time, e.mg, e.tag||'', (e.note||'').replace(/\n/g,' ')]));
-      });
-      const csv = rows.map(r=> r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      const dt = new Date().toISOString().slice(0,10);
-      a.download = `vercukor_export_${dt}.csv`;
-      a.click();
-    }
+    try {
+      const last7 = getLast7Days(date);
+      const perDayAvg=[]; const perDayLabels=[]; const weekValuesMg=[];
+      last7.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const vals=arr.map(e=>e.mg); const avg=vals.reduce((a,b)=>a+b,0)/arr.length; perDayAvg.push(fromMgdl(avg, unit)); } else { perDayAvg.push(null); } perDayLabels.push(d.slice(5)); weekValuesMg.push(...arr.map(e=>e.mg)); });
+      const wctx=document.getElementById('weekChart');
+      if(weekChart) weekChart.destroy();
+      weekChart=new Chart(wctx,{ type:'bar', data:{ labels:perDayLabels, datasets:[{label:'Napi átlag (utolsó 7 nap)', data:perDayAvg, borderWidth:1}] }, options:{ responsive:true } });
+    } catch(e){ console.error('heti chart hiba', e); banner('⚠️ Heti grafikon hiba – az adatok rendben mentve vannak.', true); }
+  }
 
-    function importCSV(ev){
-      const file = ev.target.files[0]; if(!file) return;
-      const reader = new FileReader();
-      reader.onload = ()=>{
-        const lines = reader.result.split(/\r?\n/).filter(Boolean);
-        const header = lines.shift();
-        const idxDate = 0, idxTime=1, idxMg=2, idxTag=3, idxNote=4; // a saját export formátumunkhoz
-        lines.forEach(line=>{
-          const cols = parseCSVLine(line);
-          const date = cols[idxDate];
-          const entry = { time: cols[idxTime], mg: parseFloat(cols[idxMg]), tag: cols[idxTag]||'', note: cols[idxNote]||'' };
-          if(!state.entries[date]) state.entries[date] = [];
-          if(!Number.isNaN(entry.mg)) state.entries[date].push(entry);
-          state.entries[date].sort((a,b)=> a.time.localeCompare(b.time));
-        });
-        saveAll(state); render();
-      };
-      reader.readAsText(file, 'utf-8');
-      ev.target.value = '';
-    }
+  function getLast7Days(anchorISO){ const out=[]; const base=new Date(anchorISO+'T00:00:00'); for(let i=6;i>=0;i--){ const d=new Date(base); d.setDate(base.getDate()-i); out.push(d.toISOString().slice(0,10)); } return out; }
 
-    function parseCSVLine(line){
-      // egyszerű CSV parser idézőjelezett cellákhoz
-      const out=[]; let cur=''; let inQ=false;
-      for(let i=0;i<line.length;i++){
-        const ch=line[i];
-        if(ch==='"'){
-          if(inQ && line[i+1]==='"'){ cur+='"'; i++; }
-          else inQ = !inQ;
-        } else if(ch===',' && !inQ){ out.push(cur); cur=''; }
-        else cur+=ch;
-      }
-      out.push(cur); return out;
-    }
+  // ===== Exportok =====
+  async function exportPDFRange(){
+    try{
+      if(!(window.pdfMake && pdfMake.createPdf)){ alert('A PDF könyvtár nem töltődött be. Frissítsd az oldalt.'); return; }
+      const from=els.fromDate.value, to=els.toDate.value; if(!from||!to){ alert('Állítsd be a kezdő és vég dátumot!'); return; } if(from>to){ alert('A kezdő dátum nem lehet későbbi, mint a vég dátum.'); return; }
+      const unit=els.unit.value; const allDates=enumerateDates(from,to);
+      const tableRows=[]; const points=[]; const perDay=[]; const allMg=[];
+      allDates.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const s=arr.reduce((a,e)=>a+e.mg,0); perDay.push({date:d, avg:s/arr.length}); } else { perDay.push({date:d, avg:null}); } arr.forEach(e=>{ tableRows.push([d,e.time,fmt(fromMgdl(e.mg,unit),unit), e.tag||'', e.note||'']); points.push({ label:d+' '+e.time, y: fromMgdl(e.mg, unit) }); allMg.push(e.mg); }); });
+      let docStats={avg:'—',min:'—',max:'—',tir:'—'}; if(allMg.length){ const sum=allMg.reduce((a,b)=>a+b,0); const avgMg=sum/allMg.length; const minMg=Math.min(...allMg); const maxMg=Math.max(...allMg); const tirPct=Math.round(100*allMg.filter(v=>v>=state.minTarget&&v<=state.maxTarget).length/allMg.length); docStats={ avg:fmt(fromMgdl(avgMg,unit),unit), min:fmt(fromMgdl(minMg,unit),unit), max:fmt(fromMgdl(maxMg,unit),unit), tir: `${tirPct}%` }; }
+      const lineImg = points.length ? await renderChartToImage('rangeLine','line',{ labels:points.map(p=>p.label), datasets:[ {label:'Mérések', data:points.map(p=>p.y), borderWidth:2, tension:.2, pointRadius:2}, {label:'Cél min', data:points.map(()=> fromMgdl(state.minTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:points.map(()=> fromMgdl(state.maxTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1} ] }) : null;
+      const barImg = perDay.some(d=> d.avg!=null) ? await renderChartToImage('rangeBar','bar',{ labels: perDay.map(d=> d.date.slice(5)), datasets:[ {label:'Napi átlag', data: perDay.map(d=> d.avg==null? null : fromMgdl(d.avg, unit)), borderWidth:1} ] }) : null;
+      const content=[ {text:'Vércukor jelentés', style:'h1'}, {text:`Időszak: ${from} – ${to}`, margin:[0,2,0,10]}, {columns:[ {width:'*',stack:[{text:`Átlag: ${docStats.avg}`},{text:`Minimum: ${docStats.min}`}]}, {width:'*',stack:[{text:`Maximum: ${docStats.max}`},{text:`TIR: ${docStats.tir}`}] } ], margin:[0,0,0,10]} ];
+      if(lineImg){ content.push({text:'Idősoros grafikon', style:'h2'}); content.push({image:lineImg, width:500, margin:[0,6,0,12]}); }
+      if(barImg){ content.push({text:'Napi átlagok', style:'h2'}); content.push({image:barImg, width:500, margin:[0,6,0,12]}); }
+      content.push({text:'Részletes mérések', style:'h2'});
+      content.push({ table:{ headerRows:1, widths:['*','auto','auto','auto','*'], body:[ ['Dátum','Idő','Érték','Kategória','Megjegyzés'] ].concat(tableRows) }, layout:'lightHorizontalLines' });
+      const dd={ pageSize:'A4', pageMargins:[36,36,36,36], content, styles:{ h1:{fontSize:18,bold:true}, h2:{fontSize:14,bold:true,margin:[0,10,0,4]} } };
+      pdfMake.createPdf(dd).download(`vercukor_${from}_—_${to}.pdf`);
+    } catch(err){ console.error(err); banner('⚠️ PDF export hiba. Részletek a konzolban.', true); }
+  }
+  function renderChartToImage(id,type,data){ return new Promise(res=>{ const ctx=document.getElementById(id).getContext('2d'); const chart=new Chart(ctx,{type,data,options:{animation:false}}); requestAnimationFrame(()=>requestAnimationFrame(()=>{ const img=chart.canvas.toDataURL('image/png'); chart.destroy(); res(img);})); }); }
+  function enumerateDates(fromISO,toISO){ const out=[]; const s=new Date(fromISO+'T00:00:00'); const e=new Date(toISO+'T00:00:00'); for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)) out.push(d.toISOString().slice(0,10)); return out; }
+  function exportCSV(){ try{ const rows=[["Dátum","Idő","Érték (mg/dL)","Kategória","Megjegyzés"]]; Object.entries(state.entries).forEach(([date,arr])=>{ arr.forEach(e=> rows.push([date,e.time,e.mg,e.tag||'',(e.note||'').replace(/\n/g,' ')])); }); const csv=rows.map(r=> r.map(v=> '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n'); const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='vercukor_export_'+todayISO()+'.csv'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),2000);} catch(e){ console.error(e); banner('⚠️ CSV export hiba.', true); } }
+  function importCSV(ev){ const file=ev.target.files[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ const lines=String(reader.result).split(/\r?\n/).filter(l=>l.trim().length>0); if(!lines.length) return; lines.shift(); lines.forEach(line=>{ const cols=parseCSVLine(line); const date=cols[0]; const entry={ time:cols[1], mg:parseFloat(cols[2]), tag: cols[3]||'', note: cols[4]||'' }; if(!state.entries[date]) state.entries[date]=[]; if(!Number.isNaN(entry.mg)) state.entries[date].push(entry); state.entries[date].sort((a,b)=> a.time.localeCompare(b.time)); }); saveAll(state); render(); }; reader.readAsText(file,'utf-8'); ev.target.value=''; }
+  function parseCSVLine(line){ const out=[]; let cur=''; let inQ=false; for(let i=0;i<line.length;i++){ const ch=line[i]; if(ch==='"'){ if(inQ && line[i+1]==='"'){ cur+='"'; i++; } else inQ=!inQ; } else if(ch===',' && !inQ){ out.push(cur); cur=''; } else cur+=ch; } out.push(cur); return out; }
 
-    // ====== Init ======
-    render();
-  </script>
+  // ===== UI banner =====
+  function banner(msg, isError=false){ els.banner.className = 'banner' + (isError ? ' error' : ''); els.banner.textContent = msg; els.banner.style.display='block'; if(!isError){ setTimeout(()=>{ els.banner.style.display='none'; }, 2200); } }
+
+  // ===== Indítás =====
+  render();
+</script>
 </body>
 </html>
