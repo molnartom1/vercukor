@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Napi vércukor monitor – mmol/L alap (3,5–7,5)</title>
+  <title>Napi vércukor monitor – stabil rögzítés</title>
   <style>
     :root{ --bg:#0b1020; --card:#121833; --muted:#313a66; --text:#e9ecff; --accent:#7aa2ff; --good:#38c172; --warn:#f59e0b; --bad:#ef4444; }
     *{box-sizing:border-box}
@@ -55,7 +55,7 @@
     <div class="wrap row-inline" style="justify-content:space-between">
       <div>
         <h1>Napi vércukorszint monitor</h1>
-        <div class="sub">Egyszerű, helyi (offline) naplózás. Alap: mmol/L, célzóna 3,5–7,5.</div>
+        <div class="sub">Egyszerűen, naplózással.</div>
       </div>
       <div class="row-inline">
         <label class="pill">Dátum <input id="date" type="date" /></label>
@@ -73,7 +73,7 @@
         <h2>Új mérés rögzítése</h2>
         <div class="row">
           <div><label>Időpont<input id="time" type="time" /></label></div>
-          <div><label>Érték<input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 6,2" /></label></div>
+          <div><label>Érték<input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 110" /></label></div>
           <div><label>Kategória
             <select id="tag">
               <option value="">—</option><option>Éhgyomri</option><option>Étkezés előtt</option><option>Étkezés után</option><option>Vacsora előtt</option><option>Lefekvés előtt</option><option>Edzés után</option><option>Kontroll</option>
@@ -88,7 +88,7 @@
               <input id="minTarget" type="number" step="0.1" />
               <input id="maxTarget" type="number" step="0.1" />
             </div>
-            <div class="hint">Alap: 3,5–7,5 mmol/L (mg/dL: 63–135). Átírható.</div>
+            <div class="hint">70–180 mg/dL (3.9–10.0 mmol/L) alapértelmezett – igény szerint állítható.</div>
           </div>
           <div class="row-2" style="align-items:end">
             <button id="addBtn">Hozzáadás</button>
@@ -102,7 +102,7 @@
       <div class="body">
         <h2>Napi áttekintés</h2>
         <div class="rangeBar" style="margin:6px 0 12px" title="Alacsony – Cél – Magas"></div>
-        <canvas id="chart" height="160"></canvas>
+        <canvas id="chart" height="140"></canvas>
         <div class="stats">
           <div class="stat"><span>Átlag</span><b id="avg">—</b></div>
           <div class="stat"><span>Minimum</span><b id="min">—</b></div>
@@ -110,7 +110,7 @@
           <div class="stat"><span>Idő a tartományban</span><b id="tir">—</b></div>
         </div>
         <h2 style="margin-top:20px">Heti áttekintés</h2>
-        <canvas id="weekChart" height="160"></canvas>
+        <canvas id="weekChart" height="140"></canvas>
         <div class="stats">
           <div class="stat"><span>Heti átlag</span><b id="wavg">—</b></div>
           <div class="stat"><span>Heti minimum</span><b id="wmin">—</b></div>
@@ -129,7 +129,6 @@
           <button id="exportCsv" class="ghost">Export (CSV)</button>
           <input id="importCsv" type="file" accept=".csv" style="display:none" />
           <button id="importBtn" class="ghost">Import</button>
-          <button id="syncNow" class="ghost" title="Kézi felhő szinkron">Szinkron</button>
           <button id="resetAll" class="warn">Minden adat törlése</button>
         </div>
 
@@ -162,53 +161,13 @@
   <canvas id="rangeBar" class="exportCanvas" width="1200" height="450"></canvas>
 
 <script>
-  // ===== Beállítások =====
-  // --- Opcionális távoli szinkron ---
-  // Ha itt megadsz egy alap URL-t (pl. '/api'), a program a LocalStorage mellett felhőbe is szinkronizál.
-  const SYNC_URL = ''; // pl. '/api' vagy 'https://sajat.domain/api'. Ha üres, nincs szinkron.
-  const USER_ID_KEY = 'glucose_user_id';
-  const getUserId = () => {
-    let id = localStorage.getItem(USER_ID_KEY);
-    if(!id){ id = 'u_' + Math.random().toString(36).slice(2,10); localStorage.setItem(USER_ID_KEY, id); }
-    return id;
-  };
-
-  // ===== Beállítások =====
+  // ===== Utilok =====
   const FACTOR = 18.0182; // mg/dL <-> mmol/L
   const $ = sel => document.querySelector(sel);
   const fmt = (val, unit) => val===null||Number.isNaN(val) ? '—' : (unit==='mgdl' ? `${val.toFixed(0)} mg/dL` : `${val.toFixed(1)} mmol/L`);
   const toMgdl = (v, unit) => unit==='mgdl' ? v : v*FACTOR;
   const fromMgdl = (vMg, unit) => unit==='mgdl' ? vMg : vMg/FACTOR;
   const pad = n => n.toString().padStart(2,'0');
-  function todayISO(){ return new Date().toISOString().slice(0,10); }
-  function addDaysISO(dateISO, delta){ const d=new Date(dateISO+'T00:00:00'); d.setDate(d.getDate()+delta); return d.toISOString().slice(0,10); }
-
-  // Chart.js globális: egységes világoskék vonal (ha lokálisan nincs felülírva)
-  if (window.Chart && Chart.defaults) {
-    if (Chart.defaults.elements && Chart.defaults.elements.line) {
-      Chart.defaults.elements.line.borderColor = '#7aa2ff';
-      Chart.defaults.elements.line.backgroundColor = 'transparent';
-    }
-    if (Chart.defaults.datasets && Chart.defaults.datasets.line) {
-      Chart.defaults.datasets.line.borderColor = '#7aa2ff';
-      Chart.defaults.datasets.line.backgroundColor = 'transparent';
-    }
-  }
-  function colorByMg(mg){
-    if(mg < state.minTarget) return '#f59e0b'; // sárga
-    if(mg > state.maxTarget) return '#ef4444'; // piros
-    return '#38c172'; // zöld
-  }
-
-  // ===== Tárolás =====
-  const KEY = 'glucose_log_v1';
-  function loadAll(){
-    try{
-      return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' };
-    } catch{ return { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; }
-  }
-  function saveAll(state){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){ alert('Nem sikerült menteni (LocalStorage tiltva?).'); } }
-  let state = loadAll();
 
   // ===== Elemszelektorok =====
   const els = {
@@ -220,15 +179,22 @@
     addBtn: $('#addBtn'), clearDayBtn: $('#clearDayBtn'), printBtn: $('#printBtn'),
     exportCsv: $('#exportCsv'), importBtn: $('#importBtn'), importCsv: $('#importCsv'), resetAll: $('#resetAll'),
     exportPdf: $('#exportPdf'), fromDate: $('#fromDate'), toDate: $('#toDate'), exportPdfWeek: $('#exportPdfWeek'),
-    pinInput: $('#pinInput'), pinSave: $('#pinSave'),
-    syncNow: $('#syncNow')
+    pinInput: $('#pinInput'), pinSave: $('#pinSave')
   };
 
-  // ===== Kezdőértékek kitöltése =====
+  // ===== Tárolás =====
+   const KEY = 'glucose_log_v1';
+  function loadAll(){ try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; } catch{ return { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; } }
+  function saveAll(state){ localStorage.setItem(KEY, JSON.stringify(state)); }
+  let state = loadAll();
+
+  // ===== Kezdőértékek =====
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function addDaysISO(dateISO, delta){ const d=new Date(dateISO+'T00:00:00'); d.setDate(d.getDate()+delta); return d.toISOString().slice(0,10); }
   els.date.value = todayISO();
-  els.unit.value = state.unit || 'mmol';
-  els.minTarget.value = fromMgdl(state.minTarget, els.unit.value).toFixed( els.unit.value==='mgdl'?0:1 );
-  els.maxTarget.value = fromMgdl(state.maxTarget, els.unit.value).toFixed( els.unit.value==='mgdl'?0:1 );
+  els.unit.value = state.unit || 'mgdl';
+  els.minTarget.value = fromMgdl(state.minTarget ?? 70, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+  els.maxTarget.value = fromMgdl(state.maxTarget ?? 180, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
   els.fromDate.value = todayISO();
   els.toDate.value = todayISO();
 
@@ -247,7 +213,6 @@
   els.resetAll.addEventListener('click', () => { if(!requirePin()) return; if(confirm('Biztos, hogy törlöd az ÖSSZES adatot?')){ localStorage.removeItem(KEY); state = loadAll(); render(); } });
   els.exportPdf.addEventListener('click', exportPDFRange);
   els.exportPdfWeek.addEventListener('click', () => { const today = todayISO(); const from = addDaysISO(today, -6); els.fromDate.value = from; els.toDate.value = today; exportPDFRange(); });
-  els.syncNow.addEventListener('click', () => syncAll(true)); const from = addDaysISO(today, -6); els.fromDate.value = from; els.toDate.value = today; exportPDFRange(); });
   els.pinSave.addEventListener('click', ()=>{ const pin=(els.pinInput.value||'').trim(); if(pin.length<4||!/^[0-9]+$/.test(pin)){ alert('A PIN legalább 4 számjegy legyen.'); return; } state.pin=pin; saveAll(state); els.pinInput.value=''; banner('PIN elmentve.'); });
 
   // ===== PIN védelem =====
@@ -266,14 +231,7 @@
     } catch(e){ console.error(e); return false; }
   }
 
-  // ===== Távoli API segédek (opcionális) =====
-  async function remoteGetEntries(fromISO, toISO){ if(!SYNC_URL) return null; try{ const r=await fetch(`${SYNC_URL}/entries?from=${fromISO}&to=${toISO}`,{ headers:{ 'x-user-id': getUserId() }}); if(!r.ok) throw 0; return await r.json(); }catch{ return null; } }
-  async function remoteUpsertEntry(e){ if(!SYNC_URL) return false; try{ const r=await fetch(`${SYNC_URL}/entries`,{ method:'POST', headers:{ 'Content-Type':'application/json','x-user-id':getUserId() }, body:JSON.stringify(e) }); return r.ok; }catch{ return false; } }
-  async function remoteDeleteEntry(date,time){ if(!SYNC_URL) return false; const qs=time?`?date=${date}&time=${time}`:`?date=${date}`; try{ const r=await fetch(`${SYNC_URL}/entries${qs}`,{ method:'DELETE', headers:{ 'x-user-id': getUserId() }}); return r.ok; }catch{ return false; } }
-  async function remoteGetSettings(){ if(!SYNC_URL) return null; try{ const r=await fetch(`${SYNC_URL}/settings`,{ headers:{ 'x-user-id': getUserId() }}); if(!r.ok) throw 0; return await r.json(); }catch{ return null; } }
-  async function remoteSaveSettings(){ if(!SYNC_URL) return false; try{ const r=await fetch(`${SYNC_URL}/settings`,{ method:'POST', headers:{ 'Content-Type':'application/json','x-user-id':getUserId() }, body: JSON.stringify({ unit: state.unit, minTarget: state.minTarget, maxTarget: state.maxTarget }) }); return r.ok; }catch{ return false; } }
-
-  // ===== Rögzítés: garantált mentés =====
+  // ===== Rögzítés: GARANTÁLT mentés =====
   function onAdd(){
     let saved = false;
     try{
@@ -281,9 +239,9 @@
       const now = new Date();
       const time = els.time.value || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
       let valStr = (els.value.value||'').toString().replace(',', '.').trim();
-      if(!valStr){ els.value.style.borderColor='#ef4444'; alert('Adj meg egy számot az értéknél!'); return; }
+      if(!valStr){ els.value.style.borderColor='var(--bad)'; alert('Adj meg egy számot az értéknél!'); return; }
       const val = parseFloat(valStr);
-      if(Number.isNaN(val)){ els.value.style.borderColor='#ef4444'; alert('Érvénytelen számformátum.'); return; }
+      if(Number.isNaN(val)){ els.value.style.borderColor='var(--bad)'; alert('Érvénytelen számformátum.'); return; }
       const unit = els.unit.value;
       const mg = toMgdl(val, unit);
 
@@ -294,38 +252,40 @@
       state.entries[date] = arr; saveAll(state);
       saved = true;
 
-      // Opcionális: szinkron a felhőbe (nem blokkoljuk a UI-t)
-      remoteUpsertEntry({ date, time, mg, tag: entry.tag, note: entry.note }).then(ok=>{ if(!ok&&SYNC_URL){ console.warn('Felhő szinkron sikertelen'); } }).catch(()=>{});
-
-      // 2) UI tisztítás + jelzés
-      els.value.style.borderColor=''; els.value.value=''; els.note.value='';
+      // 2) UI tisztítás
+      els.value.value=''; els.note.value=''; els.value.style.borderColor='';
       banner(`✅ Mentve: ${date} ${time} – ${fmt(fromMgdl(mg, unit), unit)}`);
 
-      // 3) Megjelenítés külön (ne blokkolja a mentést)
-      setTimeout(()=>{ try{ render(); } catch(e){ console.error('render hiba', e); banner('⚠️ Grafikon hiba, de a mérés mentve van.', true); safeTableFallback(date); } }, 0);
-    } catch(err){ console.error('onAdd hiba', err); if(saved) banner('⚠️ Mentve lett, de megjelenítési hiba történt.', true); else alert('Rögzítési hiba.'); }
+      // 3) Megjelenítés külön védve
+      try{ render(); }
+      catch(e){ console.error('render hiba', e); banner('⚠️ Grafikon hiba, de a mérés MENTVE van.', true); safeTableFallback(date); }
+    } catch(err){
+      console.error('onAdd hiba', err);
+      if(saved){ banner('⚠️ Mentve lett, de megjelenítési hiba történt.', true); }
+      else { alert('Nem sikerült rögzíteni. Nézd meg a konzolt (F12).'); }
+    }
   }
 
   function safeTableFallback(date){
     const unit = els.unit.value;
     const list = state.entries[date] || [];
-    els.rows.innerHTML='';
-    list.forEach((e)=>{
-      const tr=document.createElement('tr');
-      const val=fromMgdl(e.mg, unit);
+    els.rows.innerHTML = '';
+    list.forEach((e,idx)=>{
+      const tr = document.createElement('tr');
+      const val = fromMgdl(e.mg, unit);
       const inRange = e.mg>=state.minTarget && e.mg<=state.maxTarget;
       tr.innerHTML = `<td>${e.time}</td><td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)')}">${fmt(val, unit)}</b></td><td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td><td>${e.note?e.note:''}</td><td></td>`;
       els.rows.appendChild(tr);
     });
   }
 
-  function onDelete(idx){ if(!requirePin()) return; const date=els.date.value; const arr=(state.entries[date]||[]); const time = arr[idx]?.time; arr.splice(idx,1); state.entries[date]=arr; saveAll(state); render(); remoteDeleteEntry(date, time).catch(()=>{}); }
-  function onClearDay(){ if(!requirePin()) return; const date=els.date.value; if(confirm(date+': minden mérés törlése?')){ state.entries[date]=[]; saveAll(state); render(); remoteDeleteEntry(date, null).catch(()=>{}); } } }
+  function onDelete(idx){ if(!requirePin()) return; const date=els.date.value; const arr=(state.entries[date]||[]); arr.splice(idx,1); state.entries[date]=arr; saveAll(state); render(); }
+  function onClearDay(){ if(!requirePin()) return; const date=els.date.value; if(confirm(date+': minden mérés törlése?')){ state.entries[date]=[]; saveAll(state); render(); } }
 
-  function onUnitChange(){ state.unit = els.unit.value; saveAll(state); els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); render(); remoteSaveSettings().catch(()=>{}); }
-  function onTargetChange(){ const unit=els.unit.value; let minT=parseFloat((els.minTarget.value||'').toString().replace(',', '.')); let maxT=parseFloat((els.maxTarget.value||'').toString().replace(',', '.')); if(Number.isNaN(minT)||Number.isNaN(maxT)) return; state.minTarget=toMgdl(minT,unit); state.maxTarget=toMgdl(maxT,unit); if(state.minTarget>state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; } saveAll(state); render(); remoteSaveSettings().catch(()=>{}); }
+  function onUnitChange(){ state.unit = els.unit.value; saveAll(state); els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); render(); }
+  function onTargetChange(){ const unit=els.unit.value; let minT=parseFloat((els.minTarget.value||'').toString().replace(',', '.')); let maxT=parseFloat((els.maxTarget.value||'').toString().replace(',', '.')); if(Number.isNaN(minT)||Number.isNaN(maxT)) return; state.minTarget=toMgdl(minT,unit); state.maxTarget=toMgdl(maxT,unit); if(state.minTarget>state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; } saveAll(state); render(); }
 
-  // ===== Megjelenítés =====
+  // ===== Megjelenítés: CHART hibától független =====
   let chart, weekChart;
   function render(){
     const date = els.date.value || todayISO();
@@ -361,7 +321,7 @@
       els.tir.textContent = `${tirPct}%`;
     } else { els.avg.textContent = els.min.textContent = els.max.textContent = '—'; els.tir.textContent = '—'; }
 
-    // Grafikonok (védő try/catch)
+    // Grafikonok védőhálóval
     try {
       const labels = list.map(e=>e.time);
       const dataVals = list.map(e=> fromMgdl(e.mg, unit) );
@@ -369,17 +329,7 @@
       const maxLine = list.map(()=> fromMgdl(state.maxTarget, unit));
       const ctx = document.getElementById('chart');
       if(chart) chart.destroy();
-      chart = new Chart(ctx, { type:'line', data:{ labels, datasets:[ {
-          label:'Vércukor',
-          data:dataVals,
-          tension:.3,
-          pointRadius:4,
-          borderWidth:2,
-          borderColor:'#7aa2ff',
-          backgroundColor:'transparent',
-          pointBackgroundColor: list.map(e=> colorByMg(e.mg)),
-          pointBorderColor: list.map(e=> colorByMg(e.mg))
-        }, {label:'Cél min', data:minLine, borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1} ] }, options:{ responsive:true } });
+      chart = new Chart(ctx, { type:'line', data:{ labels, datasets:[ {label:'Vércukor', data:dataVals, tension:.3, pointRadius:4, borderWidth:2}, {label:'Cél min', data:minLine, borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1} ] }, options:{ responsive:true } });
     } catch(e){ console.error('napi chart hiba', e); banner('⚠️ Napi grafikon hiba – az adatok rendben mentve vannak.', true); }
 
     try {
@@ -388,7 +338,7 @@
       last7.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const vals=arr.map(e=>e.mg); const avg=vals.reduce((a,b)=>a+b,0)/arr.length; perDayAvg.push(fromMgdl(avg, unit)); } else { perDayAvg.push(null); } perDayLabels.push(d.slice(5)); weekValuesMg.push(...arr.map(e=>e.mg)); });
       const wctx=document.getElementById('weekChart');
       if(weekChart) weekChart.destroy();
-      weekChart=new Chart(wctx,{ type:'bar', data:{ labels:perDayLabels, datasets:[{ label:'Napi átlag (utolsó 7 nap)', data:perDayAvg, borderWidth:1, backgroundColor: perDayAvg.map(v=> v==null ? '#313a66' : colorByMg(toMgdl(v, unit))), borderColor: perDayAvg.map(v=> v==null ? '#313a66' : colorByMg(toMgdl(v, unit))) }] }, options:{ responsive:true } });
+      weekChart=new Chart(wctx,{ type:'bar', data:{ labels:perDayLabels, datasets:[{label:'Napi átlag (utolsó 7 nap)', data:perDayAvg, borderWidth:1}] }, options:{ responsive:true } });
     } catch(e){ console.error('heti chart hiba', e); banner('⚠️ Heti grafikon hiba – az adatok rendben mentve vannak.', true); }
   }
 
@@ -403,8 +353,8 @@
       const tableRows=[]; const points=[]; const perDay=[]; const allMg=[];
       allDates.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const s=arr.reduce((a,e)=>a+e.mg,0); perDay.push({date:d, avg:s/arr.length}); } else { perDay.push({date:d, avg:null}); } arr.forEach(e=>{ tableRows.push([d,e.time,fmt(fromMgdl(e.mg,unit),unit), e.tag||'', e.note||'']); points.push({ label:d+' '+e.time, y: fromMgdl(e.mg, unit) }); allMg.push(e.mg); }); });
       let docStats={avg:'—',min:'—',max:'—',tir:'—'}; if(allMg.length){ const sum=allMg.reduce((a,b)=>a+b,0); const avgMg=sum/allMg.length; const minMg=Math.min(...allMg); const maxMg=Math.max(...allMg); const tirPct=Math.round(100*allMg.filter(v=>v>=state.minTarget&&v<=state.maxTarget).length/allMg.length); docStats={ avg:fmt(fromMgdl(avgMg,unit),unit), min:fmt(fromMgdl(minMg,unit),unit), max:fmt(fromMgdl(maxMg,unit),unit), tir: `${tirPct}%` }; }
-      const lineImg = points.length ? await renderChartToImage('rangeLine','line',{ labels:points.map(p=>p.label), datasets:[ {label:'Mérések', data:points.map(p=>p.y), borderWidth:2, tension:.2, pointRadius:2, borderColor:'#7aa2ff', backgroundColor:'transparent'}, {label:'Cél min', data:points.map(()=> fromMgdl(state.minTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:points.map(()=> fromMgdl(state.maxTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1} ] }) : null;
-      const barImg = perDay.some(d=> d.avg!=null) ? await renderChartToImage('rangeBar','bar',{ labels: perDay.map(d=> d.date.slice(5)), datasets:[ {label:'Napi átlag', data: perDay.map(d=> d.avg==null? null : fromMgdl(d.avg, unit)), borderWidth:1, backgroundColor:'#7aa2ff'} ] }) : null;
+      const lineImg = points.length ? await renderChartToImage('rangeLine','line',{ labels:points.map(p=>p.label), datasets:[ {label:'Mérések', data:points.map(p=>p.y), borderWidth:2, tension:.2, pointRadius:2}, {label:'Cél min', data:points.map(()=> fromMgdl(state.minTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:points.map(()=> fromMgdl(state.maxTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1} ] }) : null;
+      const barImg = perDay.some(d=> d.avg!=null) ? await renderChartToImage('rangeBar','bar',{ labels: perDay.map(d=> d.date.slice(5)), datasets:[ {label:'Napi átlag', data: perDay.map(d=> d.avg==null? null : fromMgdl(d.avg, unit)), borderWidth:1} ] }) : null;
       const content=[ {text:'Vércukor jelentés', style:'h1'}, {text:`Időszak: ${from} – ${to}`, margin:[0,2,0,10]}, {columns:[ {width:'*',stack:[{text:`Átlag: ${docStats.avg}`},{text:`Minimum: ${docStats.min}`}]}, {width:'*',stack:[{text:`Maximum: ${docStats.max}`},{text:`TIR: ${docStats.tir}`}] } ], margin:[0,0,0,10]} ];
       if(lineImg){ content.push({text:'Idősoros grafikon', style:'h2'}); content.push({image:lineImg, width:500, margin:[0,6,0,12]}); }
       if(barImg){ content.push({text:'Napi átlagok', style:'h2'}); content.push({image:barImg, width:500, margin:[0,6,0,12]}); }
@@ -424,37 +374,6 @@
   function banner(msg, isError=false){ els.banner.className = 'banner' + (isError ? ' error' : ''); els.banner.textContent = msg; els.banner.style.display='block'; if(!isError){ setTimeout(()=>{ els.banner.style.display='none'; }, 2200); } }
 
   // ===== Indítás =====
-  async function syncAll(showToast){
-    if(!SYNC_URL){ if(showToast) banner('Szinkron nincs bekapcsolva (SYNC_URL üres).', true); return; }
-    try{
-      const s = await remoteGetSettings();
-      if(s && typeof s === 'object'){
-        state.unit = s.unit || state.unit;
-        state.minTarget = typeof s.minTarget==='number' ? s.minTarget : state.minTarget;
-        state.maxTarget = typeof s.maxTarget==='number' ? s.maxTarget : state.maxTarget;
-        saveAll(state);
-        els.unit.value = state.unit;
-        els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed(state.unit==='mgdl'?0:1);
-        els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed(state.unit==='mgdl'?0:1);
-      }
-      const today = todayISO();
-      const from = addDaysISO(today, -30);
-      const rows = await remoteGetEntries(from, today);
-      if(Array.isArray(rows)){
-        rows.forEach(e=>{
-          if(!state.entries[e.date]) state.entries[e.date]=[];
-          const i = state.entries[e.date].findIndex(x=>x.time===e.time);
-          if(i>=0) state.entries[e.date][i]=e; else state.entries[e.date].push(e);
-          state.entries[e.date].sort((a,b)=> a.time.localeCompare(b.time));
-        });
-        saveAll(state);
-      }
-      if(showToast) banner('Szinkron kész.');
-      render();
-    } catch(err){ console.error('syncAll', err); if(showToast) banner('Szinkron hiba.', true); render(); }
-  }
-  // Automatikus induláskori szinkron (ha be van állítva)
-  syncAll(false);
   render();
 </script>
 </body>
