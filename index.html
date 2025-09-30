@@ -138,6 +138,7 @@
           <button id="exportCsv" class="ghost">Export (CSV)</button>
           <input id="importCsv" type="file" accept=".csv" style="display:none" />
           <button id="importBtn" class="ghost">Import</button>
+          <button id="syncNow" class="ghost">Szinkron (felhő)</button>
           <button id="resetAll" class="warn">Minden adat törlése</button>
         </div>
 
@@ -181,9 +182,11 @@
   function addDaysISO(dateISO, delta){ const d=new Date(dateISO+'T00:00:00'); d.setDate(d.getDate()+delta); return d.toISOString().slice(0,10); }
 
   // ===== Supabase init (töltsd ki, ha felhőt akarsz) =====
-  const SUPABASE_URL = 'https://fgeqxaylvvgoabpuocfk.supabase.co';
+  const SUPABASE_URL = 'https://fgeqxaylvvgoabpuocfk.supabase.co'';
   const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnZXF4YXlsdnZnb2FicHVvY2ZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMDIxODEsImV4cCI6MjA3NDc3ODE4MX0.G1zsL2ODS3o__VdXhxBKdNcNfYPKJiNr2MMblx0Pyj0';
   const supa = (SUPABASE_URL && SUPABASE_ANON) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON) : null;
+  // Hány napot szinkronizáljon visszamenőleg? (alap: 10 év)
+  const SYNC_DAYS = 3650;
   const authEls = { email: document.getElementById('authEmail'), inBtn: document.getElementById('authSignIn'), outBtn: document.getElementById('authSignOut'), user: document.getElementById('authUser') };
   function showUser(user){ if(!authEls.inBtn) return; if(user){ authEls.inBtn.style.display='none'; authEls.outBtn.style.display=''; authEls.user.textContent=user.email||'(bejelentkezve)'; if(authEls.email) authEls.email.style.display='none'; } else { authEls.inBtn.style.display=''; authEls.outBtn.style.display='none'; authEls.user.textContent=''; if(authEls.email) authEls.email.style.display=''; } }
   async function supaSignIn(){ if(!supa){ alert('A Supabase nincs beállítva.'); return; } const email=(authEls.email.value||'').trim(); if(!email){ alert('Adj meg egy email címet!'); return; } const { error } = await supa.auth.signInWithOtp({ email }); if(error){ alert('Belépési hiba: '+error.message); return; } alert('Küldtünk egy belépő linket emailben. Kattints a linkre, majd gyere vissza.'); }
@@ -194,7 +197,7 @@
   async function supaSaveSettings(){ const user=await supaUser(); if(!user) return false; const { error } = await supa.from('settings').upsert({ user_id:user.id, unit: state.unit, min_target: state.minTarget, max_target: state.maxTarget }); return !error; }
   async function supaLoadSettings(){ const user=await supaUser(); if(!user) return null; const { data, error } = await supa.from('settings').select('unit, min_target, max_target').eq('user_id', user.id).maybeSingle(); if(error && error.code!=='PGRST116') return null; return data||null; }
   async function supaFetchEntries(fromISO, toISO){ const user=await supaUser(); if(!user) return []; const { data, error } = await supa.from('entries').select('date,time,mg,tag,note').eq('user_id', user.id).gte('date', fromISO).lte('date', toISO).order('date',{ascending:true}).order('time',{ascending:true}); return error?[]:data; }
-  async function supaSyncOnLogin(){ try{ const user=await supaUser(); if(!user) return; const bulk=[]; Object.entries(state.entries).forEach(([d,arr])=>{ arr.forEach(e=> bulk.push({ user_id:user.id, date:d, time:e.time, mg:e.mg, tag:e.tag||'', note:e.note||'' })); }); for(let i=0;i<bulk.length;i+=500){ const slice=bulk.slice(i,i+500); await supa.from('entries').upsert(slice, { onConflict:'user_id,date,time' }); } await supaSaveSettings(); const today=todayISO(); const from=addDaysISO(today,-30); const rows=await supaFetchEntries(from,today); rows.forEach(e=>{ if(!state.entries[e.date]) state.entries[e.date]=[]; const i=state.entries[e.date].findIndex(x=>x.time===e.time); if(i>=0) state.entries[e.date][i]=e; else state.entries[e.date].push(e); state.entries[e.date].sort((a,b)=> a.time.localeCompare(b.time)); }); const s=await supaLoadSettings(); if(s){ state.unit=s.unit||state.unit; state.minTarget=typeof s.min_target==='number'?s.min_target:state.minTarget; state.maxTarget=typeof s.max_target==='number'?s.max_target:state.maxTarget; } saveAll(state); render(); banner('Felhő szinkron kész.'); } catch(e){ console.error(e); banner('Felhő szinkron hiba.', true); } }
+  async function supaSyncOnLogin(){ try{ const user=await supaUser(); if(!user) return; const bulk=[]; Object.entries(state.entries).forEach(([d,arr])=>{ arr.forEach(e=> bulk.push({ user_id:user.id, date:d, time:e.time, mg:e.mg, tag:e.tag||'', note:e.note||'' })); }); for(let i=0;i<bulk.length;i+=500){ const slice=bulk.slice(i,i+500); await supa.from('entries').upsert(slice, { onConflict:'user_id,date,time' }); } await supaSaveSettings(); const today=todayISO(); const from=addDaysISO(today, -SYNC_DAYS); const rows=await supaFetchEntries(from,today); rows.forEach(e=>{ if(!state.entries[e.date]) state.entries[e.date]=[]; const i=state.entries[e.date].findIndex(x=>x.time===e.time); if(i>=0) state.entries[e.date][i]=e; else state.entries[e.date].push(e); state.entries[e.date].sort((a,b)=> a.time.localeCompare(b.time)); }); const s=await supaLoadSettings(); if(s){ state.unit=s.unit||state.unit; state.minTarget=typeof s.min_target==='number'?s.min_target:state.minTarget; state.maxTarget=typeof s.max_target==='number'?s.max_target:state.maxTarget; } saveAll(state); render(); banner('Felhő szinkron kész.'); } catch(e){ console.error(e); banner('Felhő szinkron hiba.', true); } }
 
   // ===== Elemszelektorok =====
   const els = {
@@ -207,7 +210,8 @@
     exportCsv: $('#exportCsv'), importBtn: $('#importBtn'), importCsv: $('#importCsv'), resetAll: $('#resetAll'),
     exportPdf: $('#exportPdf'), fromDate: $('#fromDate'), toDate: $('#toDate'), exportPdfWeek: $('#exportPdfWeek'),
     pinInput: $('#pinInput'), pinSave: $('#pinSave'),
-    authEmail: document.getElementById('authEmail'), authIn: document.getElementById('authSignIn'), authOut: document.getElementById('authSignOut')
+    authEmail: document.getElementById('authEmail'), authIn: document.getElementById('authSignIn'), authOut: document.getElementById('authSignOut'),
+    syncNow: document.getElementById('syncNow')
   };
 
   // ===== Tárolás (LocalStorage) =====
@@ -225,21 +229,25 @@
   els.toDate.value = todayISO();
 
   // ===== Események =====
-  els.addBtn.addEventListener('click', onAdd);
-  els.value.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); onAdd(); } });
-  els.clearDayBtn.addEventListener('click', onClearDay);
-  els.date.addEventListener('change', render);
-  els.unit.addEventListener('change', onUnitChange);
-  els.minTarget.addEventListener('change', onTargetChange);
-  els.maxTarget.addEventListener('change', onTargetChange);
-  els.printBtn.addEventListener('click', () => window.print());
-  els.exportCsv.addEventListener('click', exportCSV);
-  els.importBtn.addEventListener('click', () => els.importCsv.click());
-  els.importCsv.addEventListener('change', importCSV);
-  els.resetAll.addEventListener('click', () => { if(!requirePin()) return; if(confirm('Biztos, hogy törlöd az ÖSSZES adatot?')){ localStorage.removeItem(KEY); state = loadAll(); render(); } });
-  els.exportPdf.addEventListener('click', exportPDFRange);
-  els.exportPdfWeek.addEventListener('click', () => { const today = todayISO(); const from = addDaysISO(today, -6); els.fromDate.value = from; els.toDate.value = today; exportPDFRange(); });
-  els.pinSave.addEventListener('click', ()=>{ const pin=(els.pinInput.value||'').trim(); if(pin.length<4||!/^[0-9]+$/.test(pin)){ alert('A PIN legalább 4 számjegy legyen.'); return; } state.pin=pin; saveAll(state); els.pinInput.value=''; banner('PIN elmentve.'); });
+  function bindEvents(){
+    if(!els.addBtn) return;
+    els.addBtn.addEventListener('click', onAdd);
+    els.value.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); onAdd(); } });
+    els.clearDayBtn.addEventListener('click', onClearDay);
+    els.date.addEventListener('change', render);
+    els.unit.addEventListener('change', onUnitChange);
+    els.minTarget.addEventListener('change', onTargetChange);
+    els.maxTarget.addEventListener('change', onTargetChange);
+    els.printBtn.addEventListener('click', () => window.print());
+    els.exportCsv.addEventListener('click', exportCSV);
+    els.importBtn.addEventListener('click', () => els.importCsv.click());
+    els.importCsv.addEventListener('change', importCSV);
+    els.resetAll.addEventListener('click', () => { if(!requirePin()) return; if(confirm('Biztos, hogy törlöd az ÖSSZES adatot?')){ localStorage.removeItem(KEY); state = loadAll(); render(); } });
+    els.exportPdf.addEventListener('click', exportPDFRange);
+    els.exportPdfWeek.addEventListener('click', () => { const today = todayISO(); const from = addDaysISO(today, -6); els.fromDate.value = from; els.toDate.value = today; exportPDFRange(); });
+    els.pinSave.addEventListener('click', ()=>{ const pin=(els.pinInput.value||'').trim(); if(pin.length<4||!/^[0-9]+$/.test(pin)){ alert('A PIN legalább 4 számjegy legyen.'); return; } state.pin=pin; saveAll(state); els.pinInput.value=''; banner('PIN elmentve.'); });
+  }
+  bindEvents(); if(pin.length<4||!/^[0-9]+$/.test(pin)){ alert('A PIN legalább 4 számjegy legyen.'); return; } state.pin=pin; saveAll(state); els.pinInput.value=''; banner('PIN elmentve.'); });
 
   if (supa) {
     els.authIn.addEventListener('click', supaSignIn);
@@ -390,7 +398,7 @@
       const from=els.fromDate.value, to=els.toDate.value; if(!from||!to){ alert('Állítsd be a kezdő és vég dátumot!'); return; } if(from>to){ alert('A kezdő dátum nem lehet későbbi, mint a vég dátum.'); return; }
       const unit=els.unit.value; const allDates=enumerateDates(from,to);
       const tableRows=[]; const points=[]; const perDay=[]; const allMg=[];
-      allDates.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const s=arr.reduce((a,b)=>a+e.mg,0); } });
+      
       allDates.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const s=arr.reduce((a,e)=>a+e.mg,0); perDay.push({date:d, avg:s/arr.length}); } else { perDay.push({date:d, avg:null}); } arr.forEach(e=>{ tableRows.push([d,e.time,fmt(fromMgdl(e.mg,unit),unit), e.tag||'', e.note||'']); points.push({ label:d+' '+e.time, y: fromMgdl(e.mg, unit) }); allMg.push(e.mg); }); });
       let docStats={avg:'—',min:'—',max:'—',tir:'—'}; if(allMg.length){ const sum=allMg.reduce((a,b)=>a+b,0); const avgMg=sum/allMg.length; const minMg=Math.min(...allMg); const maxMg=Math.max(...allMg); const tirPct=Math.round(100*allMg.filter(v=>v>=state.minTarget&&v<=state.maxTarget).length/allMg.length); docStats={ avg:fmt(fromMgdl(avgMg,unit),unit), min:fmt(fromMgdl(minMg,unit),unit), max:fmt(fromMgdl(maxMg,unit),unit), tir: `${tirPct}%` }; }
       const lineImg = points.length ? await renderChartToImage('rangeLine','line',{ labels:points.map(p=>p.label), datasets:[ {label:'Mérések', data:points.map(p=>p.y), borderWidth:2, tension:.2, pointRadius:2, borderColor:'#7aa2ff', backgroundColor:'transparent'}, {label:'Cél min', data:points.map(()=> fromMgdl(state.minTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:points.map(()=> fromMgdl(state.maxTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1} ] }) : null;
