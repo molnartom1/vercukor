@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Napi vércukor monitor – stabil rögzítés</title>
+  <title>Napi vércukor monitor – mmol/L alap (3,5–7,5) + Opcionális Supabase</title>
   <style>
     :root{ --bg:#0b1020; --card:#121833; --muted:#313a66; --text:#e9ecff; --accent:#7aa2ff; --good:#38c172; --warn:#f59e0b; --bad:#ef4444; }
     *{box-sizing:border-box}
@@ -48,6 +48,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.12/build/pdfmake.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.12/build/vfs_fonts.js"></script>
+  <!-- Supabase kliens (opcionális felhő szinkronhoz) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
   <div id="banner" class="banner"></div>
@@ -55,13 +57,20 @@
     <div class="wrap row-inline" style="justify-content:space-between">
       <div>
         <h1>Napi vércukorszint monitor</h1>
-        <div class="sub">Egyszerűen, naplózással.</div>
+        <div class="sub">Egyszerű, helyi (offline) naplózás. Alap: mmol/L, célzóna 3,5–7,5.</div>
       </div>
       <div class="row-inline">
         <label class="pill">Dátum <input id="date" type="date" /></label>
         <label class="pill">Mértékegység
           <select id="unit"><option value="mgdl">mg/dL</option><option value="mmol">mmol/L</option></select>
         </label>
+        <!-- Login sáv (csak ha Supabase be van állítva) -->
+        <div class="row-inline" id="authBox">
+          <input id="authEmail" type="email" placeholder="email@cím" style="width:220px" />
+          <button id="authSignIn" class="ghost">Belépés</button>
+          <button id="authSignOut" class="ghost" style="display:none">Kilépés</button>
+          <span id="authUser" class="sub" style="margin-left:8px;opacity:.85"></span>
+        </div>
         <button id="printBtn" class="ghost">Nyomtatás</button>
       </div>
     </div>
@@ -73,7 +82,7 @@
         <h2>Új mérés rögzítése</h2>
         <div class="row">
           <div><label>Időpont<input id="time" type="time" /></label></div>
-          <div><label>Érték<input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 110" /></label></div>
+          <div><label>Érték<input id="value" type="number" inputmode="decimal" step="0.1" placeholder="pl. 5.6 vagy 6,2" /></label></div>
           <div><label>Kategória
             <select id="tag">
               <option value="">—</option><option>Éhgyomri</option><option>Étkezés előtt</option><option>Étkezés után</option><option>Vacsora előtt</option><option>Lefekvés előtt</option><option>Edzés után</option><option>Kontroll</option>
@@ -88,7 +97,7 @@
               <input id="minTarget" type="number" step="0.1" />
               <input id="maxTarget" type="number" step="0.1" />
             </div>
-            <div class="hint">70–180 mg/dL (3.9–10.0 mmol/L) alapértelmezett – igény szerint állítható.</div>
+            <div class="hint">Alap: 3,5–7,5 mmol/L (mg/dL: 63–135). Átírható.</div>
           </div>
           <div class="row-2" style="align-items:end">
             <button id="addBtn">Hozzáadás</button>
@@ -168,6 +177,24 @@
   const toMgdl = (v, unit) => unit==='mgdl' ? v : v*FACTOR;
   const fromMgdl = (vMg, unit) => unit==='mgdl' ? vMg : vMg/FACTOR;
   const pad = n => n.toString().padStart(2,'0');
+  function todayISO(){ return new Date().toISOString().slice(0,10); }
+  function addDaysISO(dateISO, delta){ const d=new Date(dateISO+'T00:00:00'); d.setDate(d.getDate()+delta); return d.toISOString().slice(0,10); }
+
+  // ===== Supabase init (töltsd ki, ha felhőt akarsz) =====
+  const SUPABASE_URL = 'https://fgeqxaylvvgoabpuocfk.supabase.co';
+  const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZnZXF4YXlsdnZnb2FicHVvY2ZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTkyMDIxODEsImV4cCI6MjA3NDc3ODE4MX0.G1zsL2ODS3o__VdXhxBKdNcNfYPKJiNr2MMblx0Pyj0';
+  const supa = (SUPABASE_URL && SUPABASE_ANON) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON) : null;
+  const authEls = { email: document.getElementById('authEmail'), inBtn: document.getElementById('authSignIn'), outBtn: document.getElementById('authSignOut'), user: document.getElementById('authUser') };
+  function showUser(user){ if(!authEls.inBtn) return; if(user){ authEls.inBtn.style.display='none'; authEls.outBtn.style.display=''; authEls.user.textContent=user.email||'(bejelentkezve)'; if(authEls.email) authEls.email.style.display='none'; } else { authEls.inBtn.style.display=''; authEls.outBtn.style.display='none'; authEls.user.textContent=''; if(authEls.email) authEls.email.style.display=''; } }
+  async function supaSignIn(){ if(!supa){ alert('A Supabase nincs beállítva.'); return; } const email=(authEls.email.value||'').trim(); if(!email){ alert('Adj meg egy email címet!'); return; } const { error } = await supa.auth.signInWithOtp({ email }); if(error){ alert('Belépési hiba: '+error.message); return; } alert('Küldtünk egy belépő linket emailben. Kattints a linkre, majd gyere vissza.'); }
+  async function supaSignOut(){ if(!supa) return; await supa.auth.signOut(); }
+  async function supaUser(){ if(!supa) return null; const { data:{ user } } = await supa.auth.getUser(); return user||null; }
+  async function supaUpsertEntry(date, time, mg, tag, note){ const user=await supaUser(); if(!user) return false; const { error } = await supa.from('entries').upsert({ user_id:user.id, date, time, mg, tag:tag||'', note:note||'' }, { onConflict:'user_id,date,time' }); return !error; }
+  async function supaDeleteEntry(date, time){ const user=await supaUser(); if(!user) return false; let q=supa.from('entries').delete().eq('user_id', user.id).eq('date', date); if(time) q=q.eq('time', time); const { error } = await q; return !error; }
+  async function supaSaveSettings(){ const user=await supaUser(); if(!user) return false; const { error } = await supa.from('settings').upsert({ user_id:user.id, unit: state.unit, min_target: state.minTarget, max_target: state.maxTarget }); return !error; }
+  async function supaLoadSettings(){ const user=await supaUser(); if(!user) return null; const { data, error } = await supa.from('settings').select('unit, min_target, max_target').eq('user_id', user.id).maybeSingle(); if(error && error.code!=='PGRST116') return null; return data||null; }
+  async function supaFetchEntries(fromISO, toISO){ const user=await supaUser(); if(!user) return []; const { data, error } = await supa.from('entries').select('date,time,mg,tag,note').eq('user_id', user.id).gte('date', fromISO).lte('date', toISO).order('date',{ascending:true}).order('time',{ascending:true}); return error?[]:data; }
+  async function supaSyncOnLogin(){ try{ const user=await supaUser(); if(!user) return; const bulk=[]; Object.entries(state.entries).forEach(([d,arr])=>{ arr.forEach(e=> bulk.push({ user_id:user.id, date:d, time:e.time, mg:e.mg, tag:e.tag||'', note:e.note||'' })); }); for(let i=0;i<bulk.length;i+=500){ const slice=bulk.slice(i,i+500); await supa.from('entries').upsert(slice, { onConflict:'user_id,date,time' }); } await supaSaveSettings(); const today=todayISO(); const from=addDaysISO(today,-30); const rows=await supaFetchEntries(from,today); rows.forEach(e=>{ if(!state.entries[e.date]) state.entries[e.date]=[]; const i=state.entries[e.date].findIndex(x=>x.time===e.time); if(i>=0) state.entries[e.date][i]=e; else state.entries[e.date].push(e); state.entries[e.date].sort((a,b)=> a.time.localeCompare(b.time)); }); const s=await supaLoadSettings(); if(s){ state.unit=s.unit||state.unit; state.minTarget=typeof s.min_target==='number'?s.min_target:state.minTarget; state.maxTarget=typeof s.max_target==='number'?s.max_target:state.maxTarget; } saveAll(state); render(); banner('Felhő szinkron kész.'); } catch(e){ console.error(e); banner('Felhő szinkron hiba.', true); } }
 
   // ===== Elemszelektorok =====
   const els = {
@@ -179,22 +206,21 @@
     addBtn: $('#addBtn'), clearDayBtn: $('#clearDayBtn'), printBtn: $('#printBtn'),
     exportCsv: $('#exportCsv'), importBtn: $('#importBtn'), importCsv: $('#importCsv'), resetAll: $('#resetAll'),
     exportPdf: $('#exportPdf'), fromDate: $('#fromDate'), toDate: $('#toDate'), exportPdfWeek: $('#exportPdfWeek'),
-    pinInput: $('#pinInput'), pinSave: $('#pinSave')
+    pinInput: $('#pinInput'), pinSave: $('#pinSave'),
+    authEmail: document.getElementById('authEmail'), authIn: document.getElementById('authSignIn'), authOut: document.getElementById('authSignOut')
   };
 
-  // ===== Tárolás =====
-   const KEY = 'glucose_log_v1';
+  // ===== Tárolás (LocalStorage) =====
+  const KEY = 'glucose_log_v1';
   function loadAll(){ try{ return JSON.parse(localStorage.getItem(KEY)) || { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; } catch{ return { entries:{}, unit:'mmol', minTarget:63, maxTarget:135, pin:'' }; } }
-  function saveAll(state){ localStorage.setItem(KEY, JSON.stringify(state)); }
+  function saveAll(state){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){ alert('Nem sikerült menteni (LocalStorage tiltva?).'); } }
   let state = loadAll();
 
   // ===== Kezdőértékek =====
-  function todayISO(){ return new Date().toISOString().slice(0,10); }
-  function addDaysISO(dateISO, delta){ const d=new Date(dateISO+'T00:00:00'); d.setDate(d.getDate()+delta); return d.toISOString().slice(0,10); }
   els.date.value = todayISO();
-  els.unit.value = state.unit || 'mgdl';
-  els.minTarget.value = fromMgdl(state.minTarget ?? 70, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
-  els.maxTarget.value = fromMgdl(state.maxTarget ?? 180, els.unit.value).toFixed( (els.unit.value==='mgdl')?0:1 );
+  els.unit.value = state.unit || 'mmol';
+  els.minTarget.value = fromMgdl(state.minTarget ?? 63, els.unit.value).toFixed( els.unit.value==='mgdl'?0:1 );
+  els.maxTarget.value = fromMgdl(state.maxTarget ?? 135, els.unit.value).toFixed( els.unit.value==='mgdl'?0:1 );
   els.fromDate.value = todayISO();
   els.toDate.value = todayISO();
 
@@ -215,6 +241,16 @@
   els.exportPdfWeek.addEventListener('click', () => { const today = todayISO(); const from = addDaysISO(today, -6); els.fromDate.value = from; els.toDate.value = today; exportPDFRange(); });
   els.pinSave.addEventListener('click', ()=>{ const pin=(els.pinInput.value||'').trim(); if(pin.length<4||!/^[0-9]+$/.test(pin)){ alert('A PIN legalább 4 számjegy legyen.'); return; } state.pin=pin; saveAll(state); els.pinInput.value=''; banner('PIN elmentve.'); });
 
+  if (supa) {
+    els.authIn.addEventListener('click', supaSignIn);
+    els.authOut.addEventListener('click', supaSignOut);
+    supa.auth.onAuthStateChange(async (_event, session) => { showUser(session?.user || null); if(session?.user){ await supaSyncOnLogin(); }});
+    (async ()=>{ const { data:{ session } } = await supa.auth.getSession(); showUser(session?.user || null); if(session?.user){ await supaSyncOnLogin(); }})();
+  } else {
+    // Ha nincs Supabase config, rejtjük a login UI-t
+    const authBox = document.getElementById('authBox'); if(authBox) authBox.style.display='none';
+  }
+
   // ===== PIN védelem =====
   function requirePin(){
     try{
@@ -231,7 +267,7 @@
     } catch(e){ console.error(e); return false; }
   }
 
-  // ===== Rögzítés: GARANTÁLT mentés =====
+  // ===== Rögzítés: GARANTÁLT mentés + (ha van) felhő upsert =====
   function onAdd(){
     let saved = false;
     try{
@@ -245,12 +281,15 @@
       const unit = els.unit.value;
       const mg = toMgdl(val, unit);
 
-      // 1) MENTÉS
+      // 1) MENTÉS (helyi)
       const entry = { time, mg, tag: els.tag.value || '', note: els.note.value || '' };
       const arr = (state.entries[date] || []).slice();
       arr.push(entry); arr.sort((a,b)=> a.time.localeCompare(b.time));
       state.entries[date] = arr; saveAll(state);
       saved = true;
+
+      // 1/b) Felhő (ha be vagy jelentkezve)
+      if (supa) { supaUpsertEntry(date, time, mg, entry.tag, entry.note).catch(()=>{}); }
 
       // 2) UI tisztítás
       els.value.value=''; els.note.value=''; els.value.style.borderColor='';
@@ -270,22 +309,22 @@
     const unit = els.unit.value;
     const list = state.entries[date] || [];
     els.rows.innerHTML = '';
-    list.forEach((e,idx)=>{
+    list.forEach((e)=>{
       const tr = document.createElement('tr');
       const val = fromMgdl(e.mg, unit);
       const inRange = e.mg>=state.minTarget && e.mg<=state.maxTarget;
-      tr.innerHTML = `<td>${e.time}</td><td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)')}">${fmt(val, unit)}</b></td><td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td><td>${e.note?e.note:''}</td><td></td>`;
+      tr.innerHTML = `<td>${e.time}</td><td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)')}">${fmt(val, unit)}</b></td><td>${e.tag?`<span class=\"tag\">${e.tag}</span>`:''}</td><td>${e.note?e.note:''}</td><td></td>`;
       els.rows.appendChild(tr);
     });
   }
 
-  function onDelete(idx){ if(!requirePin()) return; const date=els.date.value; const arr=(state.entries[date]||[]); arr.splice(idx,1); state.entries[date]=arr; saveAll(state); render(); }
-  function onClearDay(){ if(!requirePin()) return; const date=els.date.value; if(confirm(date+': minden mérés törlése?')){ state.entries[date]=[]; saveAll(state); render(); } }
+  function onDelete(idx){ if(!requirePin()) return; const date=els.date.value; const arr=(state.entries[date]||[]); const time = arr[idx]?.time; arr.splice(idx,1); state.entries[date]=arr; saveAll(state); render(); if(supa){ supaDeleteEntry(date, time).catch(()=>{}); } }
+  function onClearDay(){ if(!requirePin()) return; const date=els.date.value; if(confirm(date+': minden mérés törlése?')){ state.entries[date]=[]; saveAll(state); render(); if(supa){ supaDeleteEntry(date, null).catch(()=>{}); } } }
 
-  function onUnitChange(){ state.unit = els.unit.value; saveAll(state); els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); render(); }
-  function onTargetChange(){ const unit=els.unit.value; let minT=parseFloat((els.minTarget.value||'').toString().replace(',', '.')); let maxT=parseFloat((els.maxTarget.value||'').toString().replace(',', '.')); if(Number.isNaN(minT)||Number.isNaN(maxT)) return; state.minTarget=toMgdl(minT,unit); state.maxTarget=toMgdl(maxT,unit); if(state.minTarget>state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; } saveAll(state); render(); }
+  function onUnitChange(){ state.unit = els.unit.value; saveAll(state); els.minTarget.value = fromMgdl(state.minTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); els.maxTarget.value = fromMgdl(state.maxTarget, state.unit).toFixed(state.unit==='mgdl'?0:1); render(); if(supa){ supaSaveSettings().catch(()=>{}); } }
+  function onTargetChange(){ const unit=els.unit.value; let minT=parseFloat((els.minTarget.value||'').toString().replace(',', '.')); let maxT=parseFloat((els.maxTarget.value||'').toString().replace(',', '.')); if(Number.isNaN(minT)||Number.isNaN(maxT)) return; state.minTarget=toMgdl(minT,unit); state.maxTarget=toMgdl(maxT,unit); if(state.minTarget>state.maxTarget){ const t=state.minTarget; state.minTarget=state.maxTarget; state.maxTarget=t; } saveAll(state); render(); if(supa){ supaSaveSettings().catch(()=>{}); } }
 
-  // ===== Megjelenítés: CHART hibától független =====
+  // ===== Megjelenítés =====
   let chart, weekChart;
   function render(){
     const date = els.date.value || todayISO();
@@ -301,7 +340,7 @@
       tr.innerHTML = `
         <td>${e.time}</td>
         <td><b style="color:${inRange?'var(--good)': (e.mg<state.minTarget? 'var(--warn)':'var(--bad)')}">${fmt(val, unit)}</b></td>
-        <td>${e.tag?`<span class="tag">${e.tag}</span>`:''}</td>
+        <td>${e.tag?`<span class=\"tag\">${e.tag}</span>`:''}</td>
         <td>${e.note?e.note:''}</td>
         <td style="text-align:right"><button class="ghost" data-del="${idx}">Törlés</button></td>`;
       els.rows.appendChild(tr);
@@ -321,7 +360,7 @@
       els.tir.textContent = `${tirPct}%`;
     } else { els.avg.textContent = els.min.textContent = els.max.textContent = '—'; els.tir.textContent = '—'; }
 
-    // Grafikonok védőhálóval
+    // Grafikonok – fix világoskék vonal
     try {
       const labels = list.map(e=>e.time);
       const dataVals = list.map(e=> fromMgdl(e.mg, unit) );
@@ -329,16 +368,16 @@
       const maxLine = list.map(()=> fromMgdl(state.maxTarget, unit));
       const ctx = document.getElementById('chart');
       if(chart) chart.destroy();
-      chart = new Chart(ctx, { type:'line', data:{ labels, datasets:[ {label:'Vércukor', data:dataVals, tension:.3, pointRadius:4, borderWidth:2}, {label:'Cél min', data:minLine, borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1} ] }, options:{ responsive:true } });
+      chart = new Chart(ctx, { type:'line', data:{ labels, datasets:[ {label:'Vércukor', data:dataVals, tension:.3, pointRadius:4, borderWidth:2, borderColor:'#7aa2ff', backgroundColor:'transparent'}, {label:'Cél min', data:minLine, borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:maxLine, borderDash:[6,6], pointRadius:0, borderWidth:1} ] }, options:{ responsive:true } });
     } catch(e){ console.error('napi chart hiba', e); banner('⚠️ Napi grafikon hiba – az adatok rendben mentve vannak.', true); }
 
     try {
       const last7 = getLast7Days(date);
-      const perDayAvg=[]; const perDayLabels=[]; const weekValuesMg=[];
-      last7.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const vals=arr.map(e=>e.mg); const avg=vals.reduce((a,b)=>a+b,0)/arr.length; perDayAvg.push(fromMgdl(avg, unit)); } else { perDayAvg.push(null); } perDayLabels.push(d.slice(5)); weekValuesMg.push(...arr.map(e=>e.mg)); });
+      const perDayAvg=[]; const perDayLabels=[];
+      last7.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const vals=arr.map(e=>e.mg); const avg=vals.reduce((a,b)=>a+b,0)/arr.length; perDayAvg.push(fromMgdl(avg, unit)); } else { perDayAvg.push(null); } perDayLabels.push(d.slice(5)); });
       const wctx=document.getElementById('weekChart');
       if(weekChart) weekChart.destroy();
-      weekChart=new Chart(wctx,{ type:'bar', data:{ labels:perDayLabels, datasets:[{label:'Napi átlag (utolsó 7 nap)', data:perDayAvg, borderWidth:1}] }, options:{ responsive:true } });
+      weekChart=new Chart(wctx,{ type:'bar', data:{ labels:perDayLabels, datasets:[{label:'Napi átlag (utolsó 7 nap)', data:perDayAvg, borderWidth:1, backgroundColor:'#7aa2ff', borderColor:'#7aa2ff' }] }, options:{ responsive:true } });
     } catch(e){ console.error('heti chart hiba', e); banner('⚠️ Heti grafikon hiba – az adatok rendben mentve vannak.', true); }
   }
 
@@ -351,10 +390,11 @@
       const from=els.fromDate.value, to=els.toDate.value; if(!from||!to){ alert('Állítsd be a kezdő és vég dátumot!'); return; } if(from>to){ alert('A kezdő dátum nem lehet későbbi, mint a vég dátum.'); return; }
       const unit=els.unit.value; const allDates=enumerateDates(from,to);
       const tableRows=[]; const points=[]; const perDay=[]; const allMg=[];
+      allDates.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const s=arr.reduce((a,b)=>a+e.mg,0); } });
       allDates.forEach(d=>{ const arr=state.entries[d]||[]; if(arr.length){ const s=arr.reduce((a,e)=>a+e.mg,0); perDay.push({date:d, avg:s/arr.length}); } else { perDay.push({date:d, avg:null}); } arr.forEach(e=>{ tableRows.push([d,e.time,fmt(fromMgdl(e.mg,unit),unit), e.tag||'', e.note||'']); points.push({ label:d+' '+e.time, y: fromMgdl(e.mg, unit) }); allMg.push(e.mg); }); });
       let docStats={avg:'—',min:'—',max:'—',tir:'—'}; if(allMg.length){ const sum=allMg.reduce((a,b)=>a+b,0); const avgMg=sum/allMg.length; const minMg=Math.min(...allMg); const maxMg=Math.max(...allMg); const tirPct=Math.round(100*allMg.filter(v=>v>=state.minTarget&&v<=state.maxTarget).length/allMg.length); docStats={ avg:fmt(fromMgdl(avgMg,unit),unit), min:fmt(fromMgdl(minMg,unit),unit), max:fmt(fromMgdl(maxMg,unit),unit), tir: `${tirPct}%` }; }
-      const lineImg = points.length ? await renderChartToImage('rangeLine','line',{ labels:points.map(p=>p.label), datasets:[ {label:'Mérések', data:points.map(p=>p.y), borderWidth:2, tension:.2, pointRadius:2}, {label:'Cél min', data:points.map(()=> fromMgdl(state.minTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:points.map(()=> fromMgdl(state.maxTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1} ] }) : null;
-      const barImg = perDay.some(d=> d.avg!=null) ? await renderChartToImage('rangeBar','bar',{ labels: perDay.map(d=> d.date.slice(5)), datasets:[ {label:'Napi átlag', data: perDay.map(d=> d.avg==null? null : fromMgdl(d.avg, unit)), borderWidth:1} ] }) : null;
+      const lineImg = points.length ? await renderChartToImage('rangeLine','line',{ labels:points.map(p=>p.label), datasets:[ {label:'Mérések', data:points.map(p=>p.y), borderWidth:2, tension:.2, pointRadius:2, borderColor:'#7aa2ff', backgroundColor:'transparent'}, {label:'Cél min', data:points.map(()=> fromMgdl(state.minTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1}, {label:'Cél max', data:points.map(()=> fromMgdl(state.maxTarget, unit)), borderDash:[6,6], pointRadius:0, borderWidth:1} ] }) : null;
+      const barImg = perDay.some(d=> d.avg!=null) ? await renderChartToImage('rangeBar','bar',{ labels: perDay.map(d=> d.date.slice(5)), datasets:[ {label:'Napi átlag', data: perDay.map(d=> d.avg==null? null : fromMgdl(d.avg, unit)), borderWidth:1, backgroundColor:'#7aa2ff', borderColor:'#7aa2ff'} ] }) : null;
       const content=[ {text:'Vércukor jelentés', style:'h1'}, {text:`Időszak: ${from} – ${to}`, margin:[0,2,0,10]}, {columns:[ {width:'*',stack:[{text:`Átlag: ${docStats.avg}`},{text:`Minimum: ${docStats.min}`}]}, {width:'*',stack:[{text:`Maximum: ${docStats.max}`},{text:`TIR: ${docStats.tir}`}] } ], margin:[0,0,0,10]} ];
       if(lineImg){ content.push({text:'Idősoros grafikon', style:'h2'}); content.push({image:lineImg, width:500, margin:[0,6,0,12]}); }
       if(barImg){ content.push({text:'Napi átlagok', style:'h2'}); content.push({image:barImg, width:500, margin:[0,6,0,12]}); }
@@ -374,6 +414,14 @@
   function banner(msg, isError=false){ els.banner.className = 'banner' + (isError ? ' error' : ''); els.banner.textContent = msg; els.banner.style.display='block'; if(!isError){ setTimeout(()=>{ els.banner.style.display='none'; }, 2200); } }
 
   // ===== Indítás =====
+  // Supabase auth UI init
+  if(!supa){ const authBox=document.getElementById('authBox'); if(authBox) authBox.style.display='none'; }
+  else {
+    authEls.inBtn.addEventListener('click', supaSignIn);
+    authEls.outBtn.addEventListener('click', supaSignOut);
+    supa.auth.onAuthStateChange(async (_e, session)=>{ showUser(session?.user||null); if(session?.user){ await supaSyncOnLogin(); } });
+    (async()=>{ const { data:{ session } } = await supa.auth.getSession(); showUser(session?.user||null); if(session?.user){ await supaSyncOnLogin(); } })();
+  }
   render();
 </script>
 </body>
